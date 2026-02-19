@@ -4,9 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 /**
  * useWindowDrag
  * 管理宠物窗口的拖动
- * 
- * 当用户在宠物身上按住鼠标并移动时，整个 Tauri 窗口跟随移动
- * 宠物本身在窗口内位置不变
+ *
+ * 注意：主要的拖动逻辑现在在 PetApp.ts 中通过 startDragging() 实现。
+ * 这个 composable 保留用于其他组件中可能需要的窗口操作。
  */
 export function useWindowDrag() {
   const appWindow = getCurrentWindow();

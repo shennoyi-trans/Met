@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { ref } from "vue";
 import type { PanelPosition, PanelAction, SessionLevel } from "@/types";
 
 export const usePetStore = defineStore("pet", () => {
@@ -25,7 +25,7 @@ export const usePetStore = defineStore("pet", () => {
     showPanel.value = false;
   }
 
-  // ── 连接状态（Phase 3+ 用，现在只定义 ）──────────────────────────────────
+  // ── 连接状态（Phase 3+ 用，现在只定义）──────────────────────────────────
   const sessionLevel = ref<SessionLevel>("idle");
   const connectedFriendId = ref<string | null>(null);
 

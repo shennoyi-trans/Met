@@ -9,11 +9,16 @@
 //!   SetWindowsHookEx(WH_MOUSE_LL) 安装低级鼠标钩子，
 //!   钩子回调在安装线程的消息循环里被调用，
 //!   所以该线程必须持续调用 GetMessage 泵送消息。
+//!
+//! 坐标说明：
+//!   钩子回调中 MSLLHOOKSTRUCT.pt 返回的是 **物理像素** 坐标。
+//!   为了让前端（PixiJS / CSS）直接使用，在 emit 前会除以 DPI 缩放因子，
+//!   转换为 **逻辑像素** 坐标。
 
 use std::f64::consts::PI;
 use std::sync::Mutex;
 use std::thread;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use windows::{
     Win32::Foundation::*,
@@ -23,14 +28,18 @@ use windows::{
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct CircleGesturePayload {
+    /// 圆心 X（逻辑像素，已除以 DPI 缩放）
     pub center_x: f64,
+    /// 圆心 Y（逻辑像素，已除以 DPI 缩放）
     pub center_y: f64,
+    /// 半径（逻辑像素，已除以 DPI 缩放）
     pub radius: f64,
 }
 
 #[derive(Default)]
 struct GestureState {
     is_drawing: bool,
+    /// 记录的轨迹点（物理像素坐标）
     points: Vec<(f64, f64)>,
 }
 
@@ -53,11 +62,9 @@ pub fn start_global_listener(app: AppHandle) {
         eprintln!("[gesture] 钩子线程启动");
 
         unsafe {
-            // 获取当前模块句柄
             let hmod = GetModuleHandleW(None)
                 .expect("[gesture] GetModuleHandleW 失败");
 
-            // 安装低级鼠标钩子
             let hook = SetWindowsHookExW(
                 WH_MOUSE_LL,
                 Some(mouse_hook_proc),
@@ -69,7 +76,6 @@ pub fn start_global_listener(app: AppHandle) {
                 Ok(h) => {
                     eprintln!("[gesture] ✅ SetWindowsHookExW 成功，句柄={:?}", h);
 
-                    // 消息泵：钩子回调必须在有消息循环的线程里才会被调用
                     let mut msg = MSG::default();
                     eprintln!("[gesture] 开始消息泵，等待鼠标事件...");
                     loop {
@@ -175,9 +181,9 @@ unsafe extern "system" fn mouse_hook_proc(
                     if let Some(app) = app_opt {
                         // 在独立线程里做识别，避免阻塞消息泵
                         thread::spawn(move || {
-                            if let Some(payload) = analyze_circle(&pts) {
+                            if let Some(payload) = analyze_circle(&pts, &app) {
                                 eprintln!(
-                                    "[gesture] ✅ 圆圈识别成功！center=({:.0},{:.0}) r={:.0}",
+                                    "[gesture] ✅ 圆圈识别成功！center=({:.0},{:.0}) r={:.0} (逻辑像素)",
                                     payload.center_x, payload.center_y, payload.radius
                                 );
                                 match app.emit("gesture-circle", payload) {
@@ -199,7 +205,8 @@ unsafe extern "system" fn mouse_hook_proc(
 }
 
 /// 圆圈识别算法（含详细日志）
-fn analyze_circle(points: &[(f64, f64)]) -> Option<CircleGesturePayload> {
+/// points 中的坐标是物理像素，识别完成后会转换为逻辑像素再返回
+fn analyze_circle(points: &[(f64, f64)], app: &AppHandle) -> Option<CircleGesturePayload> {
     eprintln!("[analyze] 轨迹点: {}", points.len());
 
     if points.len() < 12 {
@@ -214,7 +221,7 @@ fn analyze_circle(points: &[(f64, f64)]) -> Option<CircleGesturePayload> {
     let avg_r = points.iter()
         .map(|&(x, y)| ((x-cx).powi(2) + (y-cy).powi(2)).sqrt())
         .sum::<f64>() / n;
-    eprintln!("[analyze] 质心=({:.0},{:.0})  平均半径={:.0}px", cx, cy, avg_r);
+    eprintln!("[analyze] 质心=({:.0},{:.0})  平均半径={:.0}px (物理)", cx, cy, avg_r);
 
     if avg_r < 30.0 {
         eprintln!("[analyze] ❌ 半径 {:.0} < 30，圈太小", avg_r);
@@ -243,19 +250,22 @@ fn analyze_circle(points: &[(f64, f64)]) -> Option<CircleGesturePayload> {
     let covered = sectors.iter().filter(|&&v| v).count();
     eprintln!("[analyze] 扇区覆盖={}/12（>=9 通过）", covered);
     if covered < 9 {
-        eprintln!("[analyze] ❌ 圆弧不完整");
+        eprintln!("[analyze] ❌ 未覆盖足够扇区");
         return None;
     }
 
-    let (s, e) = (points.first().unwrap(), points.last().unwrap());
-    let close = ((s.0-e.0).powi(2)+(s.1-e.1).powi(2)).sqrt();
-    let close_ratio = close / avg_r;
-    eprintln!("[analyze] 闭合比={:.2}（<0.8 通过）", close_ratio);
-    if close_ratio > 0.8 {
-        eprintln!("[analyze] ❌ 没有闭合，起止点距离 {:.0}px", close);
-        return None;
-    }
+    // ── 物理像素 → 逻辑像素 ──────────────────────────────────────────────
+    // 获取 DPI 缩放因子
+    let scale_factor = app
+        .get_webview_window("main")
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0);
 
-    eprintln!("[analyze] ✅ 通过所有检查");
-    Some(CircleGesturePayload { center_x: cx, center_y: cy, radius: avg_r })
+    eprintln!("[analyze] DPI scale_factor = {:.2}", scale_factor);
+
+    Some(CircleGesturePayload {
+        center_x: cx / scale_factor,
+        center_y: cy / scale_factor,
+        radius: avg_r / scale_factor,
+    })
 }

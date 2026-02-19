@@ -1,12 +1,14 @@
 import { Application } from "pixi.js";
 import { SeagullPet } from "./seagull/SeagullPet";
 import type { PetInstance } from "@/types";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * PetApp
  * PixiJS Application 的封装，管理：
  * - PixiJS 画布生命周期
  * - 当前激活的宠物实例
+ * - 拖拽逻辑
  * - 宠物切换逻辑（Phase 2+）
  */
 export async function createPetApp(container: HTMLDivElement) {
@@ -29,29 +31,44 @@ export async function createPetApp(container: HTMLDivElement) {
   petInstance.playIdle();
 
   // ── 拖拽逻辑 ────────────────────────────────────────────────────────────────
-  // 宠物可被鼠标左键拖动，拖动期间告诉 Tauri 不要穿透
-  let isDragging = false;
-  let dragStartX = 0, dragStartY = 0;
+  // 使用 Tauri 内置的 startDragging 来拖动整个窗口
+  // 比手动计算坐标更稳定，也能正确处理 DPI 缩放
+  const appWindow = getCurrentWindow();
 
-  app.canvas.addEventListener("mousedown", (e) => {
+  // 判断一个点是否在海鸥的可交互区域内
+  function isPointOnSeagull(clientX: number, clientY: number): boolean {
+    const pos = petInstance.getPosition();
+    const dx = clientX - pos.x;
+    const dy = clientY - pos.y;
+    // 海鸥大约占 100x70 像素的区域，使用椭圆判定
+    return (dx * dx) / (60 * 60) + (dy * dy) / (45 * 45) <= 1;
+  }
+
+  app.canvas.addEventListener("mousedown", async (e) => {
     if (e.button !== 0) return;
-    isDragging = true;
-    dragStartX = e.screenX;
-    dragStartY = e.screenY;
-    // 通知 Rust 层：现在有鼠标事件，不穿透
-    // invoke("set_ignore_cursor_events", { ignore: false });
+
+    // 获取相对于 canvas 的逻辑坐标
+    const rect = app.canvas.getBoundingClientRect();
+    const clientX = e.clientX - rect.left;
+    const clientY = e.clientY - rect.top;
+
+    // 只有点在海鸥身上才允许拖动
+    if (isPointOnSeagull(clientX, clientY)) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        // Tauri 2 内置的窗口拖动方法
+        // 会自动处理 mousemove/mouseup，不需要手动监听
+        await appWindow.startDragging();
+      } catch (err) {
+        console.warn("[PetApp] startDragging 失败:", err);
+      }
+    }
   });
 
-  window.addEventListener("mousemove", (e) => {
-    if (!isDragging) return;
-    const dx = e.screenX - dragStartX;
-    const dy = e.screenY - dragStartY;
-    // TODO: 调用 invoke("set_window_position") 移动窗口
-    // 需要先知道窗口当前位置，在 windowStore 里维护
-  });
-
-  window.addEventListener("mouseup", () => {
-    isDragging = false;
+  // 防止右键菜单
+  app.canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
   });
 
   return {

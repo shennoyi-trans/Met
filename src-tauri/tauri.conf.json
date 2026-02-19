@@ -15,8 +15,6 @@
         "title": "Met",
         "width": 200,
         "height": 200,
-        "minWidth": 200,
-        "minHeight": 200,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,

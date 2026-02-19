@@ -1,9 +1,16 @@
 <template>
   <div
     class="action-panel"
-    :style="{ left: clampedX + 'px', top: clampedY + 'px' }"
+    :style="{
+      left: panelX + 'px',
+      top: panelY + 'px',
+    }"
+    @mouseenter="$emit('mouseenter')"
+    @mouseleave="$emit('mouseleave')"
   >
-    <button class="close-btn" @click="$emit('close')">×</button>
+    <div class="panel-header">
+      <span class="panel-title">Met</span>
+    </div>
 
     <div class="actions-grid">
       <button
@@ -12,7 +19,7 @@
         class="action-btn"
         :class="{ disabled: !action.enabled }"
         :title="action.enabled ? action.label : action.label + '（即将开放）'"
-        @click="action.enabled && $emit('action', action.id)"
+        @click="onActionClick(action)"
       >
         <span class="action-icon">{{ action.icon }}</span>
         <span class="action-label">{{ action.label }}</span>
@@ -22,90 +29,114 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { computed } from "vue";
 import { usePetStore } from "@/stores/petStore";
 import type { PanelPosition } from "@/types";
 
 const props = defineProps<{
   position: PanelPosition;
+  seagullScreenPos?: { x: number; y: number };
 }>();
 
 const emit = defineEmits<{
   action: [id: string];
-  close: [];
+  mouseenter: [];
+  mouseleave: [];
 }>();
 
 const petStore = usePetStore();
 
-const clampedX = computed(() => Math.min(props.position.x, window.innerWidth - 160));
-const clampedY = computed(() => Math.min(props.position.y, window.innerHeight - 200));
-
-// 挂载时关闭穿透，卸载时恢复
-onMounted(async () => {
-  await invoke("set_ignore_cursor_events", { ignore: false });
+// 面板位置（已由 App.vue 计算好，这里做最终钳制）
+const panelX = computed(() => {
+  return Math.max(2, Math.min(props.position.x, window.innerWidth - 170));
 });
 
-onUnmounted(async () => {
-  await invoke("set_ignore_cursor_events", { ignore: true });
+const panelY = computed(() => {
+  return Math.max(2, Math.min(props.position.y, window.innerHeight - 260));
 });
+
+function onActionClick(action: { id: string; enabled: boolean }) {
+  if (!action.enabled) return;
+  emit("action", action.id);
+  console.log(`[ActionPanel] 点击：${action.id}`);
+}
 </script>
 
 <style scoped>
 .action-panel {
   position: fixed;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-radius: 16px;
   padding: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.6);
-  width: 150px;
-  animation: pop-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  width: 155px;
   z-index: 100;
+  pointer-events: auto;
 }
 
-@keyframes pop-in {
-  from { transform: scale(0.7); opacity: 0; }
-  to   { transform: scale(1);   opacity: 1; }
+.panel-header {
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  margin-bottom: 8px;
 }
 
-.close-btn {
-  position: absolute;
-  top: 6px; right: 8px;
-  background: none; border: none;
-  font-size: 16px; color: #999;
-  cursor: pointer; line-height: 1;
+.panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  letter-spacing: 0.5px;
 }
-.close-btn:hover { color: #333; }
 
 .actions-grid {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: 10px;
   border: none;
-  background: rgba(0,0,0,0.04);
+  background: rgba(0, 0, 0, 0.03);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
   text-align: left;
   width: 100%;
+  font-family: inherit;
 }
+
 .action-btn:hover:not(.disabled) {
   background: rgba(0, 122, 255, 0.1);
+  transform: translateX(2px);
 }
+
+.action-btn:active:not(.disabled) {
+  transform: scale(0.98);
+}
+
 .action-btn.disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
-.action-icon { font-size: 16px; }
-.action-label { font-size: 12px; color: #333; }
+
+.action-icon {
+  font-size: 16px;
+  width: 22px;
+  text-align: center;
+}
+
+.action-label {
+  font-size: 12px;
+  color: #333;
+  white-space: nowrap;
+}
 </style>

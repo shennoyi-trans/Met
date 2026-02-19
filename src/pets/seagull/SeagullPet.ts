@@ -4,7 +4,6 @@ import {
   Text,
   TextStyle,
   Ticker,
-  //type Application,
 } from "pixi.js";
 import type { PetInstance, TriggerContext, PetState } from "@/types";
 
@@ -33,9 +32,9 @@ class SeagullInstance implements PetInstance {
   private idleTicker: Ticker;
   private idleTime = 0;
 
-  // 初始位置：窗口中央偏下
+  // Home 位置（基准位置，待机动画围绕此位置漂浮）
   private homeX = 100;
-  private homeY = 130;
+  private homeY = 100;
 
   constructor(stage: Container) {
     this.stage = stage;
@@ -52,7 +51,8 @@ class SeagullInstance implements PetInstance {
     this.idleTicker.stop();
   }
 
-  // 位置管理方法
+  // ── 位置管理 ──────────────────────────────────────────────────────────────
+
   getPosition() {
     return { x: this.container.x, y: this.container.y };
   }
@@ -91,40 +91,54 @@ class SeagullInstance implements PetInstance {
   // ── 待机动画 ──────────────────────────────────────────────────────────────
 
   playIdle() {
-  this.state = "idle";
-  this.idleTicker.stop();
-  this.idleTime = 0;
+    this.state = "idle";
+    this.idleTicker.stop();
+    this.idleTime = 0;
 
-  // 重置旋转和缩放
-  //this.container.rotation = 0;
-  //this.container.scale.set(1, 1);
+    // 重置旋转和缩放
+    this.container.rotation = 0;
+    this.container.scale.set(1, 1);
 
-  // 记录进入 idle 时的实际 Y 坐标作为漂浮基准
-  // （正常流程下此时已经被 flyTo 送回 homeY，但万一没有也不会跳）
-  const baseY = this.container.y;
+    // 将容器精确放回 home 位置
+    this.container.x = this.homeX;
+    this.container.y = this.homeY;
 
-  this.idleTicker.add((ticker) => {
-    this.idleTime += ticker.deltaTime;
+    // 使用 homeY 作为漂浮基准（不再使用 container.y，避免累积漂移）
+    const baseY = this.homeY;
+    const baseX = this.homeX;
 
-    const float = Math.sin(this.idleTime * 0.04) * 4;
-    this.container.y = baseY + float;
+    this.idleTicker.add((ticker) => {
+      this.idleTime += ticker.deltaTime;
 
-    const flapScale = 1 + Math.sin(this.idleTime * 0.08) * 0.04;
-    this.container.scale.set(flapScale, 1 / flapScale);
+      // 上下漂浮（基于 home 位置，不累积）
+      const floatY = Math.sin(this.idleTime * 0.04) * 4;
+      this.container.y = baseY + floatY;
 
-    if (this.idleTime % 200 < 2) {
-      this.body.rotation = (Math.random() - 0.5) * 0.15;
-    }
-  });
+      // 保持 X 稳定
+      this.container.x = baseX;
 
-  this.idleTicker.start();
-}
+      // 呼吸般的缩放
+      const breathScale = 1 + Math.sin(this.idleTime * 0.08) * 0.03;
+      this.container.scale.set(breathScale, 1 / breathScale);
 
-  // ── 触发序列：薯条 → 扑食 → 回归 ───────────────────────────────────────────
+      // 偶尔微微转头
+      if (this.idleTime % 200 < 2) {
+        this.body.rotation = (Math.random() - 0.5) * 0.1;
+      }
+    });
+
+    this.idleTicker.start();
+  }
+
+  // ── 触发序列：薯条 → 扑食 → 停留 ──────────────────────────────────────────
 
   async onTrigger(ctx: TriggerContext): Promise<void> {
     this.state = "triggered";
     this.idleTicker.stop();
+
+    // 重置变换
+    this.container.rotation = 0;
+    this.container.scale.set(1, 1);
 
     // 1. 生成薯条
     this.friesContainer = this.createFriesGraphic(ctx.x, ctx.y);
@@ -144,10 +158,17 @@ class SeagullInstance implements PetInstance {
       this.friesContainer = null;
     }
 
-    // 5. 回到待机
-    this.playIdle();
+    // 5. 海鸥停留在原地，更新 home 位置
+    this.homeX = ctx.x;
+    this.homeY = ctx.y;
+    this.container.x = this.homeX;
+    this.container.y = this.homeY;
+    this.container.rotation = 0;
+    this.container.scale.set(1, 1);
 
-    // resolve 后 App.vue 会显示功能面板
+    // 注意：不在这里调用 playIdle()，由 App.vue 在缩回窗口后调用
+    // 这样可以确保 idle 动画基于正确的窗口内坐标
+    this.state = "idle";
   }
 
   /** 薯条占位图形 */
@@ -165,7 +186,7 @@ class SeagullInstance implements PetInstance {
     }
     c.addChild(g);
 
-    // 小标签
+    // emoji 标签
     const label = new Text({
       text: "🍟",
       style: new TextStyle({ fontSize: 20 }),
@@ -177,18 +198,26 @@ class SeagullInstance implements PetInstance {
     return c;
   }
 
-  /** 线性插值飞行动画 */
+  /** easeInOut 飞行动画 + 翅膀扑动 */
   private flyTo(targetX: number, targetY: number, durationMs: number): Promise<void> {
     return new Promise((resolve) => {
       const startX = this.container.x;
       const startY = this.container.y;
       let elapsed = 0;
 
+      // 根据方向翻转海鸥（面向目标）
+      if (targetX < startX) {
+        this.container.scale.x = -1;
+      } else {
+        this.container.scale.x = 1;
+      }
+
       const ticker = new Ticker();
       ticker.add((t) => {
         elapsed += t.deltaMS;
         const progress = Math.min(elapsed / durationMs, 1);
-        // easeInOut
+
+        // easeInOutQuad
         const eased = progress < 0.5
           ? 2 * progress * progress
           : 1 - Math.pow(-2 * progress + 2, 2) / 2;
@@ -196,12 +225,16 @@ class SeagullInstance implements PetInstance {
         this.container.x = startX + (targetX - startX) * eased;
         this.container.y = startY + (targetY - startY) * eased;
 
-        // 飞行时翅膀快速扑动
-        const flap = Math.sin(elapsed * 0.03) * 0.15;
+        // 飞行时翅膀快速扑动（旋转效果）
+        const flap = Math.sin(elapsed * 0.025) * 0.15;
         this.container.rotation = flap;
 
         if (progress >= 1) {
+          // 到达目标位置，精确定位
+          this.container.x = targetX;
+          this.container.y = targetY;
           this.container.rotation = 0;
+          this.container.scale.set(1, 1);
           ticker.destroy();
           resolve();
         }
@@ -210,16 +243,26 @@ class SeagullInstance implements PetInstance {
     });
   }
 
-  /** 扑食动画 */
+  /** 啄食动画（上下啄约 1 秒） */
   private eatAnimation(): Promise<void> {
     return new Promise((resolve) => {
-      let t = 0;
+      const baseY = this.container.y;
+      let elapsed = 0;
+      const duration = 1000; // 1 秒
+
       const ticker = new Ticker();
-      ticker.add((tick) => {
-        t += tick.deltaTime;
-        // 上下啄食
-        this.container.y += Math.sin(t * 0.3) * 2;
-        if (t > 60) {
+      ticker.add((t) => {
+        elapsed += t.deltaMS;
+
+        // 上下啄食（锯齿波形 + 衰减）
+        const peckPhase = (elapsed / 150) * Math.PI; // 每 150ms 一次啄食
+        const peckAmplitude = 6 * (1 - elapsed / duration * 0.5); // 逐渐减小
+        this.container.y = baseY + Math.abs(Math.sin(peckPhase)) * peckAmplitude;
+
+        if (elapsed >= duration) {
+          // 精确回到基准位置
+          this.container.y = baseY;
+          this.container.rotation = 0;
           ticker.destroy();
           resolve();
         }
@@ -234,6 +277,7 @@ class SeagullInstance implements PetInstance {
   }
 
   destroy() {
+    this.idleTicker.stop();
     this.idleTicker.destroy();
     this.friesContainer?.destroy();
     this.container.destroy({ children: true });
