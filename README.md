@@ -37,7 +37,7 @@
 
 ## 快速开始
 
-环境要求：Windows 10/11、Node.js 20+、Rust 1.77+
+环境要求：Windows 10/11、Node.js 20.19+、Rust 1.77+
 
 ```bash
 git clone https://github.com/your-username/met.git
@@ -45,8 +45,6 @@ cd met
 npm install
 npm run tauri dev
 ```
-
-详细环境配置和服务端部署说明见 [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)。
 
 ## License
 

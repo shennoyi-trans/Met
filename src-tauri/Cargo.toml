@@ -1,0 +1,39 @@
+[package]
+name = "met"
+version = "0.1.0"
+description = "Met Desktop Pet"
+authors = ["Mundus"]
+edition = "2021"
+build = "build.rs"
+
+[lib]
+name = "met_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "met"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-updater = "2"
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+# 全局鼠标钩子 —— 画圈手势识别的核心
+rdev = "0.5"
+
+# 输入注入（Phase 3+ 远程同屏用，现在先引入接口）
+enigo = "0.2"
+
+# 屏幕捕获（Phase 3+ 用，占位）
+# windows-capture = "1"  # 到时再开启
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

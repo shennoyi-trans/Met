@@ -1,0 +1,56 @@
+{
+  "productName": "Met",
+  "version": "0.1.0",
+  "identifier": "com.met.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Met",
+        "width": 200,
+        "height": 200,
+        "minWidth": 200,
+        "minHeight": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "x": 100,
+        "y": 100
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2MDQ5MzAyNTQ4QUU5NTcKUldSWDZZcFVBcE1FOXZYbHVKWmQ5d1dNVFR4dzE4RWFCR2ZXK1RzaXFrdDZpR0xSbzYwWXJTM1kK",
+      "endpoints": ["https://mundus.top/met/releases/met_0.1.0_x64-setup.exe"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
