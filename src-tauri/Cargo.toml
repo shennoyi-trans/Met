@@ -25,14 +25,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 
-# 全局鼠标钩子 —— 画圈手势识别的核心
-rdev = "0.5"
+# 调用 Windows API 实现全局鼠标钩子
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+] }
 
-# 输入注入（Phase 3+ 远程同屏用，现在先引入接口）
+# 输入注入（Phase 3+）
 enigo = "0.2"
-
-# 屏幕捕获（Phase 3+ 用，占位）
-# windows-capture = "1"  # 到时再开启
 
 [features]
 default = ["custom-protocol"]

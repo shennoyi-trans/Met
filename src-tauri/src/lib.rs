@@ -1,5 +1,5 @@
 use tauri::{
-    AppHandle, Manager, Runtime,
+    AppHandle, Manager,
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
 };
@@ -7,8 +7,6 @@ use tauri::{
 mod gesture;
 mod window_manager;
 mod input_inject; // Phase3+ 占位
-
-pub use gesture::GestureDetector;
 
 #[tauri::command]
 fn set_ignore_cursor_events(app: AppHandle, ignore: bool) -> Result<(), String> {

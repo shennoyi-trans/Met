@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Met 桌宠默认权限","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:event:allow-listen","core:event:allow-unlisten","core:event:allow-emit","core:window:allow-set-cursor-grab","core:window:allow-set-ignore-cursor-events","core:window:allow-set-position","core:window:allow-set-size","core:window:allow-set-focus","core:window:allow-show","core:window:allow-hide","core:window:allow-start-dragging","core:window:allow-inner-size","core:window:allow-outer-position","core:tray:default"]}}

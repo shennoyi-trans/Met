@@ -35,9 +35,11 @@ onMounted(async () => {
   petApp = await createPetApp(pixiContainer.value);
 
   // 监听 Rust 层发来的画圈手势事件
-  const unlisten = await listen<CircleGesturePayload>("gesture://circle", (event) => {
+  const unlisten = await listen<CircleGesturePayload>("gesture-circle", (event) => {
     handleCircleGesture(event.payload);
+    console.log("收到！", event); 
   });
+  console.log("listen 已注册");
 
   // 组件卸载时取消监听
   onUnmounted(unlisten);
@@ -58,7 +60,7 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
   await petApp.triggerFriesSequence(relX, relY, payload.radius);
 
   // 动画结束后显示功能面板
-  petStore.showPanel({
+  petStore.showPanelAt({
     x: relX,
     y: relY,
   });
