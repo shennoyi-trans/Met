@@ -30,6 +30,11 @@ export interface PetInstance {
 
   /** 销毁，清理资源 */
   destroy(): void;
+
+  // 位置管理（供窗口扩展时使用）
+  getPosition(): { x: number; y: number };
+  setPosition(x: number, y: number): void;
+  setHomePosition(x: number, y: number): void;
 }
 
 export type PetState = "idle" | "triggered" | "eating" | "dispatching" | "arrived";

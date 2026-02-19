@@ -4,7 +4,7 @@ import {
   Text,
   TextStyle,
   Ticker,
-  type Application,
+  //type Application,
 } from "pixi.js";
 import type { PetInstance, TriggerContext, PetState } from "@/types";
 
@@ -33,20 +33,38 @@ class SeagullInstance implements PetInstance {
   private idleTicker: Ticker;
   private idleTime = 0;
 
+  // 初始位置：窗口中央偏下
+  private homeX = 100;
+  private homeY = 130;
+
   constructor(stage: Container) {
     this.stage = stage;
     this.container = new Container();
     this.body = this.createSeagullGraphic();
     this.container.addChild(this.body);
 
-    // 初始位置：窗口中央偏下
-    this.container.x = 100;
-    this.container.y = 130;
+    this.container.x = this.homeX;
+    this.container.y = this.homeY;
 
     stage.addChild(this.container);
 
     this.idleTicker = new Ticker();
     this.idleTicker.stop();
+  }
+
+  // 位置管理方法
+  getPosition() {
+    return { x: this.container.x, y: this.container.y };
+  }
+
+  setPosition(x: number, y: number) {
+    this.container.x = x;
+    this.container.y = y;
+  }
+
+  setHomePosition(x: number, y: number) {
+    this.homeX = x;
+    this.homeY = y;
   }
 
   /** 程序绘制的海鸥占位图（等美术资源好了替换这里） */
@@ -73,29 +91,34 @@ class SeagullInstance implements PetInstance {
   // ── 待机动画 ──────────────────────────────────────────────────────────────
 
   playIdle() {
-    this.state = "idle";
-    this.idleTicker.stop();
-    this.idleTime = 0;
+  this.state = "idle";
+  this.idleTicker.stop();
+  this.idleTime = 0;
 
-    this.idleTicker.add((ticker) => {
-      this.idleTime += ticker.deltaTime;
+  // 重置旋转和缩放
+  //this.container.rotation = 0;
+  //this.container.scale.set(1, 1);
 
-      // 上下漂浮
-      const float = Math.sin(this.idleTime * 0.04) * 4;
-      this.container.y = 130 + float;
+  // 记录进入 idle 时的实际 Y 坐标作为漂浮基准
+  // （正常流程下此时已经被 flyTo 送回 homeY，但万一没有也不会跳）
+  const baseY = this.container.y;
 
-      // 轻微翅膀扑动（缩放模拟）
-      const flapScale = 1 + Math.sin(this.idleTime * 0.08) * 0.04;
-      this.container.scale.set(flapScale, 1 / flapScale);
+  this.idleTicker.add((ticker) => {
+    this.idleTime += ticker.deltaTime;
 
-      // 随机偏头（每隔一段时间）
-      if (this.idleTime % 200 < 2) {
-        this.body.rotation = (Math.random() - 0.5) * 0.15;
-      }
-    });
+    const float = Math.sin(this.idleTime * 0.04) * 4;
+    this.container.y = baseY + float;
 
-    this.idleTicker.start();
-  }
+    const flapScale = 1 + Math.sin(this.idleTime * 0.08) * 0.04;
+    this.container.scale.set(flapScale, 1 / flapScale);
+
+    if (this.idleTime % 200 < 2) {
+      this.body.rotation = (Math.random() - 0.5) * 0.15;
+    }
+  });
+
+  this.idleTicker.start();
+}
 
   // ── 触发序列：薯条 → 扑食 → 回归 ───────────────────────────────────────────
 
@@ -121,10 +144,7 @@ class SeagullInstance implements PetInstance {
       this.friesContainer = null;
     }
 
-    // 5. 飞回原位
-    await this.flyTo(100, 130, 600);
-
-    // 6. 回到待机
+    // 5. 回到待机
     this.playIdle();
 
     // resolve 后 App.vue 会显示功能面板

@@ -2,13 +2,9 @@
   <div
     class="action-panel"
     :style="{ left: clampedX + 'px', top: clampedY + 'px' }"
-    @mouseenter="onPanelHover(true)"
-    @mouseleave="onPanelHover(false)"
   >
-    <!-- 关闭按钮 -->
     <button class="close-btn" @click="$emit('close')">×</button>
 
-    <!-- 功能按键 -->
     <div class="actions-grid">
       <button
         v-for="action in petStore.actions"
@@ -26,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { usePetStore } from "@/stores/petStore";
 import type { PanelPosition } from "@/types";
@@ -42,14 +38,17 @@ const emit = defineEmits<{
 
 const petStore = usePetStore();
 
-// 防止面板超出窗口边界（简单实现）
 const clampedX = computed(() => Math.min(props.position.x, window.innerWidth - 160));
 const clampedY = computed(() => Math.min(props.position.y, window.innerHeight - 200));
 
-// 面板出现时禁止鼠标穿透，面板消失时恢复穿透
-async function onPanelHover(hovering: boolean) {
-  await invoke("set_ignore_cursor_events", { ignore: !hovering });
-}
+// 挂载时关闭穿透，卸载时恢复
+onMounted(async () => {
+  await invoke("set_ignore_cursor_events", { ignore: false });
+});
+
+onUnmounted(async () => {
+  await invoke("set_ignore_cursor_events", { ignore: true });
+});
 </script>
 
 <style scoped>
