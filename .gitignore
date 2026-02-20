@@ -30,6 +30,7 @@ src-tauri/target/
 .env.*.local
 
 # ── 编辑器 ───────────────────────────────────────────────────────────────────
+.github/
 .obsidian/
 .vscode/
 !.vscode/extensions.json

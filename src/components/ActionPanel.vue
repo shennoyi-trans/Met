@@ -7,6 +7,7 @@
     }"
     @mouseenter="$emit('mouseenter')"
     @mouseleave="$emit('mouseleave')"
+    @mousedown.stop
   >
     <div class="panel-header">
       <span class="panel-title">Met</span>

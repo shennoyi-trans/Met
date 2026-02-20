@@ -248,8 +248,8 @@ fn analyze_circle(points: &[(f64, f64)], app: &AppHandle) -> Option<CircleGestur
         sectors[s] = true;
     }
     let covered = sectors.iter().filter(|&&v| v).count();
-    eprintln!("[analyze] 扇区覆盖={}/12（>=9 通过）", covered);
-    if covered < 9 {
+    eprintln!("[analyze] 扇区覆盖={}/12（>=10 通过）", covered);
+    if covered < 10 {
         eprintln!("[analyze] ❌ 未覆盖足够扇区");
         return None;
     }

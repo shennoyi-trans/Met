@@ -1,7 +1,7 @@
 import { Application } from "pixi.js";
 import { SeagullPet } from "./seagull/SeagullPet";
 import type { PetInstance } from "@/types";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * PetApp
@@ -31,9 +31,7 @@ export async function createPetApp(container: HTMLDivElement) {
   petInstance.playIdle();
 
   // ── 拖拽逻辑 ────────────────────────────────────────────────────────────────
-  // 使用 Tauri 内置的 startDragging 来拖动整个窗口
-  // 比手动计算坐标更稳定，也能正确处理 DPI 缩放
-  const appWindow = getCurrentWindow();
+  // 使用自定义 Pointer Events 拖动，避免系统原生拖动限制窗口不能超过屏幕顶部
 
   // 判断一个点是否在海鸥的可交互区域内
   function isPointOnSeagull(clientX: number, clientY: number): boolean {
@@ -44,26 +42,65 @@ export async function createPetApp(container: HTMLDivElement) {
     return (dx * dx) / (60 * 60) + (dy * dy) / (45 * 45) <= 1;
   }
 
-  app.canvas.addEventListener("mousedown", async (e) => {
+  let isDragging = false;
+  let dragWinX = 0;
+  let dragWinY = 0;
+  let lastScreenX = 0;
+  let lastScreenY = 0;
+  let dragPending = false;
+
+  app.canvas.addEventListener("pointerdown", async (e: PointerEvent) => {
     if (e.button !== 0) return;
 
-    // 获取相对于 canvas 的逻辑坐标
     const rect = app.canvas.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
     const clientY = e.clientY - rect.top;
 
-    // 只有点在海鸥身上才允许拖动
     if (isPointOnSeagull(clientX, clientY)) {
       e.preventDefault();
       e.stopPropagation();
       try {
-        // Tauri 2 内置的窗口拖动方法
-        // 会自动处理 mousemove/mouseup，不需要手动监听
-        await appWindow.startDragging();
+        const [wx, wy] = await invoke<[number, number]>("get_window_position");
+        dragWinX = wx;
+        dragWinY = wy;
+        lastScreenX = e.screenX;
+        lastScreenY = e.screenY;
+        isDragging = true;
+        dragPending = false;
+        app.canvas.setPointerCapture(e.pointerId);
       } catch (err) {
-        console.warn("[PetApp] startDragging 失败:", err);
+        console.warn("[PetApp] 获取窗口位置失败:", err);
       }
     }
+  });
+
+  app.canvas.addEventListener("pointermove", async (e: PointerEvent) => {
+    if (!isDragging) return;
+    const dx = e.screenX - lastScreenX;
+    const dy = e.screenY - lastScreenY;
+    lastScreenX = e.screenX;
+    lastScreenY = e.screenY;
+    dragWinX += dx;
+    dragWinY += dy;
+    if (dragPending) return;
+    dragPending = true;
+    try {
+      await invoke("set_window_position", { x: dragWinX, y: dragWinY });
+    } catch (_) {
+      // 静默失败
+    } finally {
+      dragPending = false;
+    }
+  });
+
+  app.canvas.addEventListener("pointerup", (e: PointerEvent) => {
+    if (!isDragging) return;
+    isDragging = false;
+    app.canvas.releasePointerCapture(e.pointerId);
+  });
+
+  app.canvas.addEventListener("pointercancel", () => {
+    isDragging = false;
   });
 
   // 防止右键菜单

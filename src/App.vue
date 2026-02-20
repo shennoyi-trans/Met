@@ -2,6 +2,7 @@
   <div id="met-root"
     @mouseenter="onRootMouseEnter"
     @mouseleave="onRootMouseLeave"
+    @mousedown="onRootMouseDown"
   >
     <div id="pixi-container" ref="pixiContainer" />
     <transition name="panel-fade">
@@ -122,17 +123,15 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
     await invoke("set_window_position", { x: 0.0, y: 0.0 });
     await invoke("set_window_size", { width: screenLogW * 1.0, height: screenLogH * 1.0 });
 
-    // 等待窗口 resize 生效
-    await sleep(120);
-
-    // ── 4. 调整 PixiJS 渲染器大小（逻辑像素）─────────────
+    // ── 4. 立即调整 PixiJS 和海鸥位置（防止窗口移动后海鸥在旧本地坐标处闪现）─
     petApp.app.renderer.resize(screenLogW, screenLogH);
-
-    // ── 5. 把海鸥移到屏幕逻辑坐标位置 ───────────────────
     petApp.petInstance.setPosition(seagullLogX, seagullLogY);
     petApp.petInstance.setHomePosition(seagullLogX, seagullLogY);
 
-    // ── 6. 触发动画（坐标已是逻辑像素）──────────────────
+    // 等待窗口 resize 完全生效
+    await sleep(120);
+
+    // ── 5. 触发动画（坐标已是逻辑像素）──────────────────
     await petApp.triggerFriesSequence(
       payload.center_x,
       payload.center_y,
@@ -336,6 +335,13 @@ function onRootMouseLeave() {
   isMouseOverPetArea = false;
   if (petStore.showPanel && !isMouseOverPanel) {
     startPanelHideTimer();
+  }
+}
+
+function onRootMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return;
+  if (petStore.showPanel) {
+    closePanelGracefully();
   }
 }
 

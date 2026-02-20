@@ -31,6 +31,7 @@ class SeagullInstance implements PetInstance {
   // 待机动画状态
   private idleTicker: Ticker;
   private idleTime = 0;
+  private idleTickerFn: ((ticker: Ticker) => void) | null = null;
 
   // Home 位置（基准位置，待机动画围绕此位置漂浮）
   private homeX = 100;
@@ -93,6 +94,13 @@ class SeagullInstance implements PetInstance {
   playIdle() {
     this.state = "idle";
     this.idleTicker.stop();
+
+    // 移除上一次注册的监听，防止多次调用后监听叠加导致动画加速
+    if (this.idleTickerFn) {
+      this.idleTicker.remove(this.idleTickerFn);
+      this.idleTickerFn = null;
+    }
+
     this.idleTime = 0;
 
     // 重置旋转和缩放
@@ -103,19 +111,15 @@ class SeagullInstance implements PetInstance {
     this.container.x = this.homeX;
     this.container.y = this.homeY;
 
-    // 使用 homeY 作为漂浮基准（不再使用 container.y，避免累积漂移）
-    const baseY = this.homeY;
-    const baseX = this.homeX;
-
-    this.idleTicker.add((ticker) => {
+    // 直接引用 this.homeX/Y，使 setHomePosition() 更新后立即生效，
+    // 避免扩屏时海鸥被旧闭包值拉回左上角
+    this.idleTickerFn = (ticker) => {
       this.idleTime += ticker.deltaTime;
 
-      // 上下漂浮（基于 home 位置，不累积）
+      // 上下漂浮（基于当前 homeY，不累积）
       const floatY = Math.sin(this.idleTime * 0.04) * 4;
-      this.container.y = baseY + floatY;
-
-      // 保持 X 稳定
-      this.container.x = baseX;
+      this.container.y = this.homeY + floatY;
+      this.container.x = this.homeX;
 
       // 呼吸般的缩放
       const breathScale = 1 + Math.sin(this.idleTime * 0.08) * 0.03;
@@ -125,8 +129,9 @@ class SeagullInstance implements PetInstance {
       if (this.idleTime % 200 < 2) {
         this.body.rotation = (Math.random() - 0.5) * 0.1;
       }
-    });
+    };
 
+    this.idleTicker.add(this.idleTickerFn);
     this.idleTicker.start();
   }
 
@@ -144,30 +149,35 @@ class SeagullInstance implements PetInstance {
     this.friesContainer = this.createFriesGraphic(ctx.x, ctx.y);
     this.stage.addChild(this.friesContainer);
 
-    // 2. 海鸥飞过去抢薯条
-    await this.flyTo(ctx.x, ctx.y, 800);
+    // 2. 计算朝向和飞行目标，使嘴巴尖（偏移约 (52, -10)）对准薯条中心
+    const facingRight = ctx.x >= this.container.x;
+    const beakOffsetX = facingRight ? 52 : -52;
+    const flyTargetX = ctx.x - beakOffsetX;  // 让嘴巴尖落在 ctx.x
+    const flyTargetY = ctx.y + 10;            // 让嘴巴尖落在 ctx.y
 
-    // 3. 扑食动画
+    // 3. 海鸥飞过去（嘴巴尖对准薯条）
+    await this.flyTo(flyTargetX, flyTargetY, 800, facingRight);
+
+    // 4. 扑食动画
     this.state = "eating";
-    await this.eatAnimation();
+    await this.eatAnimation(facingRight);
 
-    // 4. 移除薯条
+    // 5. 移除薯条
     if (this.friesContainer) {
       this.stage.removeChild(this.friesContainer);
       this.friesContainer.destroy();
       this.friesContainer = null;
     }
 
-    // 5. 海鸥停留在原地，更新 home 位置
+    // 6. 海鸥停留在圈圈中心，更新 home 位置
     this.homeX = ctx.x;
     this.homeY = ctx.y;
-    this.container.x = this.homeX;
-    this.container.y = this.homeY;
+    this.container.x = ctx.x;
+    this.container.y = ctx.y;
     this.container.rotation = 0;
-    this.container.scale.set(1, 1);
+    this.container.scale.set(facingRight ? 1 : -1, 1);
 
     // 注意：不在这里调用 playIdle()，由 App.vue 在缩回窗口后调用
-    // 这样可以确保 idle 动画基于正确的窗口内坐标
     this.state = "idle";
   }
 
@@ -199,18 +209,14 @@ class SeagullInstance implements PetInstance {
   }
 
   /** easeInOut 飞行动画 + 翅膀扑动 */
-  private flyTo(targetX: number, targetY: number, durationMs: number): Promise<void> {
+  private flyTo(targetX: number, targetY: number, durationMs: number, facingRight: boolean = true): Promise<void> {
     return new Promise((resolve) => {
       const startX = this.container.x;
       const startY = this.container.y;
       let elapsed = 0;
 
-      // 根据方向翻转海鸥（面向目标）
-      if (targetX < startX) {
-        this.container.scale.x = -1;
-      } else {
-        this.container.scale.x = 1;
-      }
+      // 根据传入的朝向翻转海鸥
+      this.container.scale.x = facingRight ? 1 : -1;
 
       const ticker = new Ticker();
       ticker.add((t) => {
@@ -243,24 +249,28 @@ class SeagullInstance implements PetInstance {
     });
   }
 
-  /** 啄食动画（上下啄约 1 秒） */
-  private eatAnimation(): Promise<void> {
+  /** 啄食动画：嘴巴尖停在薯条处，身体前后振荡（约 1 秒） */
+  private eatAnimation(facingRight: boolean): Promise<void> {
     return new Promise((resolve) => {
+      const baseX = this.container.x;
       const baseY = this.container.y;
       let elapsed = 0;
-      const duration = 1000; // 1 秒
+      const duration = 1000;
 
       const ticker = new Ticker();
       ticker.add((t) => {
         elapsed += t.deltaMS;
 
-        // 上下啄食（锯齿波形 + 衰减）
-        const peckPhase = (elapsed / 150) * Math.PI; // 每 150ms 一次啄食
-        const peckAmplitude = 6 * (1 - elapsed / duration * 0.5); // 逐渐减小
-        this.container.y = baseY + Math.abs(Math.sin(peckPhase)) * peckAmplitude;
+        // 向后拉再向前冲：嘴巴尖回到薯条时振幅为 0，拉开时为 peckAmplitude
+        const peckPhase = (elapsed / 180) * Math.PI;
+        const peckAmplitude = 10 * (1 - (elapsed / duration) * 0.5);
+        // 向后拉（远离薯条方向），使嘴巴尖在 0 振幅时刚好碰到薯条
+        const pullBack = Math.abs(Math.sin(peckPhase)) * peckAmplitude;
+        this.container.x = baseX + (facingRight ? -pullBack : pullBack);
+        this.container.rotation = Math.sin(peckPhase) * 0.1;
 
         if (elapsed >= duration) {
-          // 精确回到基准位置
+          this.container.x = baseX;
           this.container.y = baseY;
           this.container.rotation = 0;
           ticker.destroy();
