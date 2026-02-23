@@ -175,7 +175,7 @@ pub fn run() {
 
             let _ = main_win.set_position(tauri::LogicalPosition::new(0.0, 0.0));
             let _ = main_win.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
-            let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h));
+            let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h - 1.0)); // 减1像素避免任务栏预览覆盖
             let _ = main_win.set_ignore_cursor_events(true);
 
             eprintln!("[setup] main window: {:.0}x{:.0} logical, always-on-top, 穿透", log_w, log_h);
