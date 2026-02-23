@@ -8,38 +8,39 @@ mod gesture;
 mod window_manager;
 mod input_inject; // Phase3+ 占位
 
-// ─── 窗口控制命令 ────────────────────────────────────────────────────────────
+// ── 宠物位置同步 ────────────────────────────────────────────────────────────
 
-/// 设置鼠标事件穿透
-/// ignore = true  → 窗口完全穿透（鼠标事件落到下层窗口）
-/// ignore = false → 窗口正常接收鼠标事件
+/// 前端在宠物位置变化时调用，同步给全局钩子用于拖拽命中判定
 #[tauri::command]
-fn set_ignore_cursor_events(app: AppHandle, ignore: bool) -> Result<(), String> {
+fn update_pet_position(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("window not found")?;
-    window
-        .set_ignore_cursor_events(ignore)
-        .map_err(|e| e.to_string())
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    gesture::set_pet_position(x, y, scale);
+    Ok(())
 }
 
-/// 设置窗口位置（接收逻辑像素坐标，自动处理 DPI 缩放）
+// ── 面板窗口控制 ────────────────────────────────────────────────────────────
+
+/// 在指定屏幕位置显示面板窗口（逻辑像素）
 #[tauri::command]
-fn set_window_position(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
-    let window = app.get_webview_window("main").ok_or("window not found")?;
-    window
-        .set_position(tauri::LogicalPosition::new(x, y))
-        .map_err(|e| e.to_string())
+fn show_panel(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
+    let panel = app.get_webview_window("panel").ok_or("panel window not found")?;
+    panel.set_position(tauri::LogicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    panel.show().map_err(|e| e.to_string())?;
+    panel.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
-/// 设置窗口大小（接收逻辑像素尺寸，自动处理 DPI 缩放）
+/// 隐藏面板窗口
 #[tauri::command]
-fn set_window_size(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
-    let window = app.get_webview_window("main").ok_or("window not found")?;
-    // 临时解除最小尺寸限制，以支持动态调整
-    let _ = window.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
-    window
-        .set_size(tauri::LogicalSize::new(width, height))
-        .map_err(|e| e.to_string())
+fn hide_panel(app: AppHandle) -> Result<(), String> {
+    let panel = app.get_webview_window("panel").ok_or("panel window not found")?;
+    panel.hide().map_err(|e| e.to_string())?;
+    Ok(())
 }
+
+// ── 通用窗口控制 ────────────────────────────────────────────────────────────
 
 /// 获取主显示器的缩放因子
 #[tauri::command]
@@ -48,8 +49,7 @@ fn get_scale_factor(app: AppHandle) -> Result<f64, String> {
     window.scale_factor().map_err(|e| e.to_string())
 }
 
-/// 获取屏幕物理尺寸（像素）
-/// 返回 (physical_width, physical_height)
+/// 获取屏幕物理尺寸
 #[cfg(windows)]
 #[tauri::command]
 fn get_screen_size() -> (u32, u32) {
@@ -64,21 +64,40 @@ fn get_screen_size() -> (u32, u32) {
 #[cfg(not(windows))]
 #[tauri::command]
 fn get_screen_size() -> (u32, u32) {
-    (1920, 1080) // 非 Windows 平台回退
+    (1920, 1080)
 }
 
 /// 重新置顶窗口（解决被任务栏预览等覆盖的问题）
 #[tauri::command]
 fn reassert_always_on_top(app: AppHandle) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("window not found")?;
-    // 先取消置顶再重新置顶，确保 z-order 刷新
     let _ = window.set_always_on_top(false);
-    window
-        .set_always_on_top(true)
-        .map_err(|e| e.to_string())
+    window.set_always_on_top(true).map_err(|e| e.to_string())
 }
 
-/// 获取窗口当前位置（返回逻辑像素）
+/// 设置鼠标事件穿透（用于 main 窗口）
+#[tauri::command]
+fn set_ignore_cursor_events(app: AppHandle, ignore: bool) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("window not found")?;
+    window.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())
+}
+
+/// 设置窗口位置（通用，前端指定 label）
+#[tauri::command]
+fn set_window_position(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("window not found")?;
+    window.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e| e.to_string())
+}
+
+/// 设置窗口大小（通用）
+#[tauri::command]
+fn set_window_size(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("window not found")?;
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
+    window.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())
+}
+
+/// 获取窗口位置（逻辑像素）
 #[tauri::command]
 fn get_window_position(app: AppHandle) -> Result<(f64, f64), String> {
     let window = app.get_webview_window("main").ok_or("window not found")?;
@@ -87,7 +106,8 @@ fn get_window_position(app: AppHandle) -> Result<(f64, f64), String> {
     Ok((pos.x as f64 / scale, pos.y as f64 / scale))
 }
 
-// ─── 远程同屏接口占位（Phase 3+）────────────────────────────────────────────
+// ── 远程同屏接口占位（Phase 3+）────────────────────────────────────────────
+
 #[tauri::command]
 fn start_screen_capture(_app: AppHandle) -> Result<(), String> {
     Err("screen_capture: not implemented in Phase 1".into())
@@ -97,14 +117,15 @@ fn start_screen_capture(_app: AppHandle) -> Result<(), String> {
 fn inject_input(_app: AppHandle, _event_json: String) -> Result<(), String> {
     Err("inject_input: not implemented in Phase 1".into())
 }
-// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 入口 ────────────────────────────────────────────────────────────────────
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            // ── 系统托盘 ──────────────────────────────────────────────────────
+            // ── 系统托盘 ──────────────────────────────────────────────────
             let quit = MenuItem::with_id(app, "quit", "退出 Met", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -127,23 +148,55 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // ── 启动全局手势监听 ──────────────────────────────────────────────
+            // ── 主窗口：全屏 + 穿透 ──────────────────────────────────────
+            let main_win = app.get_webview_window("main")
+                .expect("main window not found");
+
+            // 获取屏幕逻辑尺寸并全屏
+            let scale = main_win.scale_factor().unwrap_or(1.0);
+            let (phys_w, phys_h) = {
+                #[cfg(windows)]
+                {
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
+                    };
+                    unsafe {
+                        (
+                            GetSystemMetrics(SM_CXSCREEN) as f64,
+                            GetSystemMetrics(SM_CYSCREEN) as f64,
+                        )
+                    }
+                }
+                #[cfg(not(windows))]
+                { (1920.0, 1080.0) }
+            };
+            let log_w = phys_w / scale;
+            let log_h = phys_h / scale;
+
+            let _ = main_win.set_position(tauri::LogicalPosition::new(0.0, 0.0));
+            let _ = main_win.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
+            let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h));
+            let _ = main_win.set_ignore_cursor_events(true);
+
+            eprintln!("[setup] main window: {:.0}x{:.0} logical, always-on-top, 穿透", log_w, log_h);
+
+            // ── 启动全局手势监听 ──────────────────────────────────────────
             let app_handle = app.handle().clone();
             gesture::start_global_listener(app_handle);
-
-            // ── 初始状态：窗口不穿透（小窗口可以接收鼠标事件用于拖拽）──────
-            // 默认 ignore = false，200x200 小窗口正常接收事件
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            update_pet_position,
+            show_panel,
+            hide_panel,
+            get_scale_factor,
+            get_screen_size,
+            reassert_always_on_top,
             set_ignore_cursor_events,
             set_window_position,
             set_window_size,
-            get_screen_size,
-            get_scale_factor,
             get_window_position,
-            reassert_always_on_top,
             start_screen_capture,
             inject_input,
         ])

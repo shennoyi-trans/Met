@@ -1,14 +1,5 @@
 <template>
-  <div
-    class="action-panel"
-    :style="{
-      left: panelX + 'px',
-      top: panelY + 'px',
-    }"
-    @mouseenter="$emit('mouseenter')"
-    @mouseleave="$emit('mouseleave')"
-    @mousedown.stop
-  >
+  <div class="action-panel">
     <div class="panel-header">
       <span class="panel-title">Met</span>
     </div>
@@ -30,42 +21,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import { usePetStore } from "@/stores/petStore";
-import type { PanelPosition } from "@/types";
-
-const props = defineProps<{
-  position: PanelPosition;
-  seagullScreenPos?: { x: number; y: number };
-}>();
 
 const emit = defineEmits<{
   action: [id: string];
-  mouseenter: [];
-  mouseleave: [];
 }>();
 
 const petStore = usePetStore();
 
-// 面板位置（已由 App.vue 计算好，这里做最终钳制）
-const panelX = computed(() => {
-  return Math.max(2, Math.min(props.position.x, window.innerWidth - 170));
-});
-
-const panelY = computed(() => {
-  return Math.max(2, Math.min(props.position.y, window.innerHeight - 260));
-});
-
 function onActionClick(action: { id: string; enabled: boolean }) {
   if (!action.enabled) return;
   emit("action", action.id);
-  console.log(`[ActionPanel] 点击：${action.id}`);
 }
 </script>
 
 <style scoped>
 .action-panel {
-  position: fixed;
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -76,8 +47,14 @@ function onActionClick(action: { id: string; enabled: boolean }) {
     0 2px 8px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.6);
   width: 155px;
-  z-index: 100;
   pointer-events: auto;
+  /* 弹入动画 */
+  animation: panel-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: scale(0.85) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .panel-header {

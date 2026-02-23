@@ -13,16 +13,31 @@
       {
         "label": "main",
         "title": "Met",
-        "width": 200,
-        "height": 200,
+        "width": 800,
+        "height": 600,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
         "shadow": false,
-        "x": 100,
-        "y": 100
+        "x": 0,
+        "y": 0
+      },
+      {
+        "label": "panel",
+        "title": "Met Panel",
+        "width": 180,
+        "height": 280,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "x": 0,
+        "y": 0
       }
     ],
     "trayIcon": {
