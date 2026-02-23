@@ -12,12 +12,12 @@
  * - 渲染 PixiJS 宠物（坐标 = 屏幕逻辑坐标）
  * - 监听 Rust 钩子的手势事件，播放动画
  * - 监听 Rust 钩子的拖拽事件，移动宠物
+ * - 监听 Rust 钩子的悬停事件，切换鼠标穿透
  * - 动画结束后通知 Rust 显示面板窗口
  *
  * 不再负责：
  * - 窗口 resize / reposition（窗口始终全屏）
  * - 面板 DOM 渲染（面板是独立窗口）
- * - 鼠标穿透切换（窗口始终穿透）
  */
 import { ref, onMounted, onUnmounted } from "vue";
 import { listen } from "@tauri-apps/api/event";
@@ -79,6 +79,19 @@ onMounted(async () => {
     (event) => handleDragEnd(event.payload)
   );
 
+  // ── 悬停事件：鼠标进入/离开宠物时切换窗口穿透 ──────────────────────────
+  const unlistenHoverEnter = await listen("pet-hover-enter", async () => {
+    try {
+      await invoke("set_ignore_cursor_events", { ignore: false });
+    } catch (_) {}
+  });
+
+  const unlistenHoverLeave = await listen("pet-hover-leave", async () => {
+    try {
+      await invoke("set_ignore_cursor_events", { ignore: true });
+    } catch (_) {}
+  });
+
   // z-order 刷新
   zOrderTimer = setInterval(async () => {
     try { await invoke("reassert_always_on_top"); } catch (_) {}
@@ -89,6 +102,8 @@ onMounted(async () => {
     unlistenDragStart();
     unlistenDragMove();
     unlistenDragEnd();
+    unlistenHoverEnter();
+    unlistenHoverLeave();
     if (zOrderTimer) clearInterval(zOrderTimer);
   });
 });
@@ -109,6 +124,8 @@ function handleDragStart() {
   if (!petApp || isAnimating) return;
   // 停止 idle 动画，冻结宠物
   petApp.petInstance.stopAnimation();
+  // 拖拽期间恢复穿透，避免阻挡桌面其他元素
+  invoke("set_ignore_cursor_events", { ignore: true }).catch(() => {});
 }
 
 function handleDragMove(payload: DragPayload) {
@@ -125,6 +142,10 @@ async function handleDragEnd(payload: DragPayload) {
 
   // 同步最终位置给 Rust
   await syncPetPosition(payload.x, payload.y);
+
+  // 不再强制 set_ignore_cursor_events(true)
+  // Rust 侧 update_hover_state 会在拖拽结束时立即用当前鼠标位置重新判定
+  // 如果鼠标仍在宠物上 → 保持不穿透；移开了 → 自动恢复穿透
 }
 
 // ── 手势处理 ────────────────────────────────────────────────────────────────

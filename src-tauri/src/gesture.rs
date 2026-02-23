@@ -1,14 +1,16 @@
 //! gesture.rs
 //! 全局鼠标钩子 —— 直接调用 Windows API（WH_MOUSE_LL）
 //!
-//! 双职责：
+//! 三职责：
 //!   1. 画圈手势识别 → emit "gesture-circle"
 //!   2. 宠物拖拽检测 → emit "pet-drag-start" / "pet-drag-move" / "pet-drag-end"
+//!   3. 宠物悬停检测 → emit "pet-hover-enter" / "pet-hover-leave"
 //!
 //! 工作方式：
 //!   左键按下时，判断光标是否在宠物附近：
 //!   - 是 → 进入拖拽模式，后续 move/up 产生拖拽事件
 //!   - 否 → 进入绘制模式，后续 move 记录轨迹，up 时识别圆圈
+//!   空闲时 move 检测悬停进入/离开 → 切换窗口穿透
 //!
 //! 坐标说明：
 //!   钩子回调中 MSLLHOOKSTRUCT.pt 返回的是 **物理像素** 坐标。
@@ -63,6 +65,8 @@ struct GestureState {
     pet_phys_y: f64,
     /// 宠物命中判定半径（物理像素）
     pet_hit_radius: f64,
+    /// 当前鼠标是否悬停在宠物上（用于 hover 进入/离开 检测）
+    is_hovering: bool,
 }
 
 impl Default for GestureState {
@@ -75,6 +79,28 @@ impl Default for GestureState {
             pet_phys_x: -9999.0,
             pet_phys_y: -9999.0,
             pet_hit_radius: 75.0,
+            is_hovering: false,
+        }
+    }
+}
+
+impl GestureState {
+    /// 判断指定物理像素坐标是否在宠物命中范围内
+    fn is_cursor_over_pet(&self, x: f64, y: f64) -> bool {
+        let dx = x - self.pet_phys_x;
+        let dy = y - self.pet_phys_y;
+        (dx * dx + dy * dy).sqrt() <= self.pet_hit_radius
+    }
+
+    /// 根据当前鼠标位置更新悬停状态，状态变化时 emit 事件
+    fn update_hover_state(&mut self, x: f64, y: f64) {
+        let over = self.is_cursor_over_pet(x, y);
+        if over && !self.is_hovering {
+            self.is_hovering = true;
+            emit_hover_event(true);
+        } else if !over && self.is_hovering {
+            self.is_hovering = false;
+            emit_hover_event(false);
         }
     }
 }
@@ -161,11 +187,7 @@ unsafe extern "system" fn mouse_hook_proc(
             WM_LBUTTONDOWN => {
                 if let Ok(mut guard) = GLOBAL_STATE.try_lock() {
                     if let Some(state) = guard.as_mut() {
-                        let dx = x - state.pet_phys_x;
-                        let dy = y - state.pet_phys_y;
-                        let dist = (dx * dx + dy * dy).sqrt();
-
-                        if dist <= state.pet_hit_radius {
+                        if state.is_cursor_over_pet(x, y) {
                             // ── 拖拽模式 ──
                             state.mode = GestureMode::Dragging;
                             state.drag_offset_x = state.pet_phys_x - x;
@@ -204,7 +226,10 @@ unsafe extern "system" fn mouse_hook_proc(
                                     state.points.push((x, y));
                                 }
                             }
-                            GestureMode::Idle => {}
+                            GestureMode::Idle => {
+                                // ── 悬停检测：鼠标是否在宠物命中范围内 ──
+                                state.update_hover_state(x, y);
+                            }
                         }
                     }
                 }
@@ -218,6 +243,8 @@ unsafe extern "system" fn mouse_hook_proc(
                             match state.mode {
                                 GestureMode::Dragging => {
                                     state.mode = GestureMode::Idle;
+                                    state.is_hovering = false;
+                                    state.update_hover_state(x, y);
                                     Some(("drag-end", state.pet_phys_x, state.pet_phys_y, Vec::new()))
                                 }
                                 GestureMode::Drawing => {
@@ -280,6 +307,21 @@ fn emit_drag_event(event_name: &str, phys_x: f64, phys_y: f64) {
         let scale = get_scale(&app);
         let payload = DragPayload { x: phys_x / scale, y: phys_y / scale };
         let _ = app.emit(event_name, payload);
+    }
+}
+
+/// 发送悬停进入/离开事件，前端据此切换窗口鼠标穿透
+fn emit_hover_event(entering: bool) {
+    let app_opt = {
+        if let Ok(guard) = GLOBAL_APP.try_lock() {
+            guard.clone()
+        } else {
+            return;
+        }
+    };
+    if let Some(app) = app_opt {
+        let event_name = if entering { "pet-hover-enter" } else { "pet-hover-leave" };
+        let _ = app.emit(event_name, ());
     }
 }
 
