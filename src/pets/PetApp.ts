@@ -1,5 +1,6 @@
 import { Application } from "pixi.js";
 import { SeagullPet } from "./seagull/SeagullPet";
+import { registerSeagullGestures } from "./seagull/gestures";
 import type { PetInstance } from "@/types";
 
 /**
@@ -26,6 +27,9 @@ export async function createPetApp(container: HTMLDivElement) {
   const seagull = new SeagullPet();
   const petInstance: PetInstance = await seagull.load(app.stage);
 
+  // 注册海鸥需要的手势识别器到 Rust 侧
+  await registerSeagullGestures();
+
   // 主窗口始终穿透，画布不接收鼠标事件
   app.canvas.style.pointerEvents = "none";
 
@@ -39,6 +43,7 @@ export async function createPetApp(container: HTMLDivElement) {
 
     async switchPet(_pluginId: string) {
       petInstance.destroy();
+      // TODO: 加载新宠物并注册其手势识别器
     },
 
     destroy() {

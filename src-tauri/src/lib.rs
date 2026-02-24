@@ -4,9 +4,12 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
 };
 
-mod gesture;
+mod gestures;
 mod window_manager;
 mod input_inject; // Phase3+ 占位
+
+use gestures::recognizers::circle::CircleRecognizer;
+use gestures::recognizers::GestureRecognizer;
 
 // ── 宠物位置同步 ────────────────────────────────────────────────────────────
 
@@ -15,7 +18,25 @@ mod input_inject; // Phase3+ 占位
 fn update_pet_position(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("window not found")?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
-    gesture::set_pet_position(x, y, scale);
+    gestures::set_pet_position(x, y, scale);
+    Ok(())
+}
+
+// ── 手势识别器注册 ──────────────────────────────────────────────────────────
+
+/// 前端切换宠物时调用，注册该宠物需要的手势识别器
+#[tauri::command]
+fn register_recognizers(names: Vec<String>) -> Result<(), String> {
+    let mut list: Vec<Box<dyn GestureRecognizer>> = Vec::new();
+    for name in &names {
+        match name.as_str() {
+            "circle" => list.push(Box::new(CircleRecognizer)),
+            // 未来扩展：
+            // "heart" => list.push(Box::new(HeartRecognizer)),
+            other => eprintln!("[lib] ⚠️ 未知识别器: {}", other),
+        }
+    }
+    gestures::set_recognizers(list);
     Ok(())
 }
 
@@ -175,19 +196,20 @@ pub fn run() {
 
             let _ = main_win.set_position(tauri::LogicalPosition::new(0.0, 0.0));
             let _ = main_win.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
-            let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h - 1.0)); // 减1像素避免任务栏预览覆盖
+            let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h - 1.0));
             let _ = main_win.set_ignore_cursor_events(true);
 
             eprintln!("[setup] main window: {:.0}x{:.0} logical, always-on-top, 穿透", log_w, log_h);
 
             // ── 启动全局手势监听 ──────────────────────────────────────────
             let app_handle = app.handle().clone();
-            gesture::start_global_listener(app_handle);
+            gestures::start_global_listener(app_handle);
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             update_pet_position,
+            register_recognizers,
             show_panel,
             hide_panel,
             get_scale_factor,
