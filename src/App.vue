@@ -122,7 +122,7 @@ async function syncPetPosition(x: number, y: number) {
 
 function handleDragStart() {
   if (!petApp || isAnimating) return;
-  // 停止 idle 动画，冻结宠物
+  // 停止 idle 动画，冻结宠物（保留朝向）
   petApp.petInstance.stopAnimation();
   // 拖拽期间恢复穿透，避免阻挡桌面其他元素
   invoke("set_ignore_cursor_events", { ignore: true }).catch(() => {});
@@ -142,10 +142,6 @@ async function handleDragEnd(payload: DragPayload) {
 
   // 同步最终位置给 Rust
   await syncPetPosition(payload.x, payload.y);
-
-  // 不再强制 set_ignore_cursor_events(true)
-  // Rust 侧 update_hover_state 会在拖拽结束时立即用当前鼠标位置重新判定
-  // 如果鼠标仍在宠物上 → 保持不穿透；移开了 → 自动恢复穿透
 }
 
 // ── 手势处理 ────────────────────────────────────────────────────────────────
@@ -193,8 +189,9 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
 // ── 面板位置计算 ────────────────────────────────────────────────────────────
 
 function computePanelPosition(petX: number, petY: number) {
-  const screenW = window.screen.width;
-  const screenH = window.screen.height;
+  // ★ Bug #2 修复：使用 availWidth/availHeight 排除任务栏区域
+  const screenW = window.screen.availWidth;
+  const screenH = window.screen.availHeight;
 
   let x: number;
   let y: number;
