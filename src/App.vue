@@ -12,17 +12,20 @@
  * - 渲染 PixiJS 宠物（坐标 = 屏幕逻辑坐标）
  * - 监听 Rust 钩子的手势事件，播放动画
  * - 监听 Rust 钩子的拖拽事件，移动宠物
- * - 监听 Rust 钩子的悬停事件，切换鼠标穿透
- * - 动画结束后通知 Rust 显示面板窗口
+ * - 监听 Rust 钩子的悬停事件，切换鼠标穿透 + 通知面板控制器
+ * - 监听 Rust 钩子的右键事件，toggle 面板
+ * - 通过 PanelController 管理面板生命周期
  *
  * 不再负责：
  * - 窗口 resize / reposition（窗口始终全屏）
  * - 面板 DOM 渲染（面板是独立窗口）
+ * - 面板位置计算、自动关闭计时（PanelController 负责）
  */
 import { ref, onMounted, onUnmounted } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { createPetApp } from "@/pets/PetApp";
+import { usePanelController } from "@/composables/usePanelController";
 import type { CircleGesturePayload, DragPayload } from "@/types";
 
 const pixiContainer = ref<HTMLDivElement>();
@@ -30,19 +33,17 @@ let petApp: Awaited<ReturnType<typeof createPetApp>> | null = null;
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 
-// 宠物初始位置（屏幕逻辑坐标）
 const INITIAL_PET_X = 150;
 const INITIAL_PET_Y = 150;
-
-// 面板尺寸（逻辑像素，与面板窗口 tauri.conf.json 一致）
-const PANEL_W = 180;
-const PANEL_H = 280;
-const PANEL_GAP = 20;
 
 // ── 状态 ─────────────────────────────────────────────────────────────────────
 
 let isAnimating = false;
 let zOrderTimer: ReturnType<typeof setInterval> | null = null;
+
+// ── 面板控制器 ───────────────────────────────────────────────────────────────
+
+const panel = usePanelController();
 
 onMounted(async () => {
   if (!pixiContainer.value) return;
@@ -56,6 +57,10 @@ onMounted(async () => {
 
   // 同步初始位置给 Rust 钩子（用于拖拽命中判定）
   await syncPetPosition(INITIAL_PET_X, INITIAL_PET_Y);
+  panel.updatePetPosition(INITIAL_PET_X, INITIAL_PET_Y);
+
+  // ── 初始化面板控制器（监听跨窗口事件）──────────────────────────────────
+  await panel.init();
 
   // ── 事件监听 ──────────────────────────────────────────────────────────
 
@@ -79,18 +84,26 @@ onMounted(async () => {
     (event) => handleDragEnd(event.payload)
   );
 
-  // ── 悬停事件：鼠标进入/离开宠物时切换窗口穿透 ──────────────────────────
+  // ── 悬停事件：鼠标进入/离开宠物时切换窗口穿透 + 通知面板控制器 ────────────
   const unlistenHoverEnter = await listen("pet-hover-enter", async () => {
     try {
       await invoke("set_ignore_cursor_events", { ignore: false });
     } catch (_) {}
+    panel.onPetHoverEnter();
   });
 
   const unlistenHoverLeave = await listen("pet-hover-leave", async () => {
     try {
       await invoke("set_ignore_cursor_events", { ignore: true });
     } catch (_) {}
+    panel.onPetHoverLeave();
   });
+
+  // ── 右键事件：toggle 面板 ──────────────────────────────────────────────
+  const unlistenRightClick = await listen<DragPayload>(
+    "pet-right-click",
+    (event) => handleRightClick(event.payload)
+  );
 
   // z-order 刷新
   zOrderTimer = setInterval(async () => {
@@ -104,7 +117,9 @@ onMounted(async () => {
     unlistenDragEnd();
     unlistenHoverEnter();
     unlistenHoverLeave();
+    unlistenRightClick();
     if (zOrderTimer) clearInterval(zOrderTimer);
+    panel.destroy();
   });
 });
 
@@ -122,10 +137,10 @@ async function syncPetPosition(x: number, y: number) {
 
 function handleDragStart() {
   if (!petApp || isAnimating) return;
-  // 停止 idle 动画，冻结宠物（保留朝向）
   petApp.petInstance.stopAnimation();
-  // 拖拽期间恢复穿透，避免阻挡桌面其他元素
   invoke("set_ignore_cursor_events", { ignore: true }).catch(() => {});
+  // 拖拽开始时关闭面板
+  panel.hidePanel();
 }
 
 function handleDragMove(payload: DragPayload) {
@@ -140,8 +155,19 @@ async function handleDragEnd(payload: DragPayload) {
   petApp.petInstance.setHomePosition(payload.x, payload.y);
   petApp.petInstance.playIdle();
 
-  // 同步最终位置给 Rust
+  // 同步最终位置
   await syncPetPosition(payload.x, payload.y);
+  panel.updatePetPosition(payload.x, payload.y);
+}
+
+// ── 右键处理 ────────────────────────────────────────────────────────────────
+
+async function handleRightClick(_payload: DragPayload) {
+  if (!petApp || isAnimating) return;
+
+  // 使用当前宠物位置来定位面板
+  const pos = petApp.petInstance.getPosition();
+  await panel.togglePanel(pos.x, pos.y);
 }
 
 // ── 手势处理 ────────────────────────────────────────────────────────────────
@@ -151,10 +177,10 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
   isAnimating = true;
 
   // 先隐藏面板（如果还在显示）
-  try { await invoke("hide_panel"); } catch (_) {}
+  await panel.hidePanel();
 
   try {
-    // 直接播放动画！坐标已经是屏幕逻辑坐标，无需任何窗口操作
+    // 播放动画！坐标已经是屏幕逻辑坐标，无需任何窗口操作
     await petApp.triggerFriesSequence(
       payload.center_x,
       payload.center_y,
@@ -165,18 +191,19 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
     const petX = payload.center_x;
     const petY = payload.center_y;
 
+    // ★ Bug #1 修复：先更新 homePosition，再 playIdle，防止宠物跳回旧位置
+    petApp.petInstance.setHomePosition(petX, petY);
     petApp.petInstance.playIdle();
 
-    // 同步位置给 Rust 钩子
+    // 同步位置
     await syncPetPosition(petX, petY);
+    panel.updatePetPosition(petX, petY);
 
-    // 计算面板位置并显示面板窗口
-    const panelPos = computePanelPosition(petX, petY);
-    await invoke("show_panel", { x: panelPos.x, y: panelPos.y });
+    // 显示面板
+    await panel.showPanel(petX, petY);
 
   } catch (e) {
     console.error("[App] handleCircleGesture 出错：", e);
-    // 确保宠物可见并恢复 idle
     if (petApp) {
       petApp.petInstance.setVisible(true);
       petApp.petInstance.playIdle();
@@ -184,39 +211,6 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
   } finally {
     isAnimating = false;
   }
-}
-
-// ── 面板位置计算 ────────────────────────────────────────────────────────────
-
-function computePanelPosition(petX: number, petY: number) {
-  // ★ Bug #2 修复：使用 availWidth/availHeight 排除任务栏区域
-  const screenW = window.screen.availWidth;
-  const screenH = window.screen.availHeight;
-
-  let x: number;
-  let y: number;
-
-  // 优先放右侧
-  if (petX + 60 + PANEL_GAP + PANEL_W < screenW) {
-    x = petX + 60 + PANEL_GAP;
-  }
-  // 其次放左侧
-  else if (petX - 60 - PANEL_GAP - PANEL_W > 0) {
-    x = petX - 60 - PANEL_GAP - PANEL_W;
-  }
-  // 兜底居中
-  else {
-    x = Math.max(10, (screenW - PANEL_W) / 2);
-  }
-
-  // 纵向：与宠物大致齐平
-  y = petY - 40;
-
-  // 边界钳制
-  x = Math.max(5, Math.min(x, screenW - PANEL_W - 5));
-  y = Math.max(5, Math.min(y, screenH - PANEL_H - 5));
-
-  return { x, y };
 }
 </script>
 

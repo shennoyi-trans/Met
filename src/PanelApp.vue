@@ -1,5 +1,9 @@
 <template>
-  <div id="panel-root" @mousedown.self="onBackgroundClick">
+  <div
+    id="panel-root"
+    @mouseenter="onMouseEnter"
+    @mouseleave="onMouseLeave"
+  >
     <ActionPanel @action="handleAction" />
   </div>
 </template>
@@ -9,10 +13,16 @@
  * PanelApp.vue — 面板窗口的根组件
  *
  * 独立 Tauri 窗口，由主窗口通过 show_panel 命令显示。
- * 窗口失焦时自动隐藏（点击屏幕其他位置）。
+ *
+ * 职责：
+ *   - 渲染功能面板 UI
+ *   - 向主窗口发送跨窗口事件：
+ *     · panel-hover-enter / panel-hover-leave — 鼠标进出面板
+ *     · panel-blur — 窗口失焦（点击屏幕其他位置）
+ *   - 不自行决定何时关闭，全部交由主窗口的 PanelController 管理
  */
 import { onMounted, onUnmounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import ActionPanel from "@/components/ActionPanel.vue";
 
@@ -20,10 +30,10 @@ const appWindow = getCurrentWindow();
 let unlistenFocus: (() => void) | null = null;
 
 onMounted(async () => {
-  // 窗口失焦 → 自动隐藏面板（点击屏幕任意其他位置触发）
+  // 窗口失焦 → 通知主窗口（PanelController 决定是否关闭）
   unlistenFocus = await appWindow.onFocusChanged(({ payload: focused }) => {
     if (!focused) {
-      hidePanel();
+      emit("panel-blur");
     }
   });
 });
@@ -32,18 +42,17 @@ onUnmounted(() => {
   if (unlistenFocus) unlistenFocus();
 });
 
-async function hidePanel() {
-  try {
-    await invoke("hide_panel");
-  } catch (e) {
-    console.warn("[PanelApp] hide_panel 失败:", e);
-  }
+// ── 鼠标悬停跟踪 ────────────────────────────────────────────────────────────
+
+function onMouseEnter() {
+  emit("panel-hover-enter");
 }
 
-function onBackgroundClick() {
-  // 点击面板背景空白区域也关闭
-  hidePanel();
+function onMouseLeave() {
+  emit("panel-hover-leave");
 }
+
+// ── 按钮事件 ────────────────────────────────────────────────────────────────
 
 function handleAction(actionId: string) {
   console.log("[PanelApp] action:", actionId);

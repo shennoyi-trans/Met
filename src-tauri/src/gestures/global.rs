@@ -207,6 +207,17 @@ unsafe extern "system" fn mouse_hook_proc(
                     }
                 }
             }
+            
+             WM_RBUTTONDOWN => {
+                // ── 右键点击宠物 → 通知前端 toggle 面板 ──
+                if let Ok(guard) = GLOBAL_STATE.try_lock() {
+                    if let Some(state) = guard.as_ref() {
+                        if state.is_cursor_over_pet(x, y) {
+                            emit_right_click_event(state.pet_phys_x, state.pet_phys_y);
+                        }
+                    }
+                }
+            }
 
             WM_MOUSEMOVE => {
                 if let Ok(mut guard) = GLOBAL_STATE.try_lock() {
@@ -322,7 +333,7 @@ fn emit_drag_event(event_name: &str, phys_x: f64, phys_y: f64) {
     }
 }
 
-/// 发送悬停进入/离开事件，前端据此切换窗口鼠标穿透
+// 发送悬停进入/离开事件，前端据此切换窗口鼠标穿透
 fn emit_hover_event(entering: bool) {
     let app_opt = {
         if let Ok(guard) = GLOBAL_APP.try_lock() {
@@ -334,6 +345,25 @@ fn emit_hover_event(entering: bool) {
     if let Some(app) = app_opt {
         let event_name = if entering { "pet-hover-enter" } else { "pet-hover-leave" };
         let _ = app.emit(event_name, ());
+    }
+}
+
+// 发送宠物右键点击事件，前端据此 toggle 功能面板
+fn emit_right_click_event(phys_x: f64, phys_y: f64) {
+    let app_opt = {
+        if let Ok(guard) = GLOBAL_APP.try_lock() {
+            guard.clone()
+        } else {
+            return;
+        }
+    };
+    if let Some(app) = app_opt {
+        let scale = get_scale(&app);
+        let payload = DragPayload {
+            x: phys_x / scale,
+            y: phys_y / scale,
+        };
+        let _ = app.emit("pet-right-click", payload);
     }
 }
 
