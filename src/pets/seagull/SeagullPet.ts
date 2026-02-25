@@ -181,11 +181,14 @@ class SeagullInstance implements PetInstance {
       this.friesContainer = null;
     }
 
-    // ★ 停留在薯条位置，保持飞行方向的朝向
-    this.homeX = ctx.x;
-    this.homeY = ctx.y;
-    this.container.x = ctx.x;
-    this.container.y = ctx.y;
+    // ★ BUG 修复：停留在飞行终点（啄食结束位置），而非跳到薯条中心
+    // 飞行终点 = (ctx.x - beakOffsetX, ctx.y + 10)
+    // 之前直接赋值 ctx.x / ctx.y 会导致 52px 的突然跳变，
+    // 视觉上表现为面板弹出时宠物向飞行方向偏移。
+    const finalX = this.container.x; // 啄食动画已恢复到 baseX = 飞行终点
+    const finalY = this.container.y;
+    this.homeX = finalX;
+    this.homeY = finalY;
     this.container.rotation = 0;
     this.applyFacing(); // 朝向已在飞行前设置，此处只确保 scale 干净
     this.state = "idle";

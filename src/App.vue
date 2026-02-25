@@ -187,11 +187,14 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
       payload.radius
     );
 
-    // 动画结束，宠物停在圈圈中心
-    const petX = payload.center_x;
-    const petY = payload.center_y;
+    // ★ BUG 修复：动画结束后，用宠物实际停留位置（飞行终点）
+    // 而非 payload.center_x/center_y（薯条中心）。
+    // 因为飞行时有 beakOffsetX 偏移，两者相差约 52px。
+    const pos = petApp.petInstance.getPosition();
+    const petX = pos.x;
+    const petY = pos.y;
 
-    // ★ Bug #1 修复：先更新 homePosition，再 playIdle，防止宠物跳回旧位置
+    // 先更新 homePosition，再 playIdle，防止宠物跳回旧位置
     petApp.petInstance.setHomePosition(petX, petY);
     petApp.petInstance.playIdle();
 
