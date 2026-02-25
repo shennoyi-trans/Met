@@ -15,6 +15,8 @@
  * - 监听 Rust 钩子的悬停事件，切换鼠标穿透 + 通知面板控制器
  * - 监听 Rust 钩子的右键事件，toggle 面板
  * - 通过 PanelController 管理面板生命周期
+ * - 动画结束后统一处理：落点同步 → playIdle → 面板弹出
+ *   （宠物插件只负责动画表演，不碰 homePosition / 面板 / 位置同步）
  *
  * 不再负责：
  * - 窗口 resize / reposition（窗口始终全屏）
@@ -133,6 +135,23 @@ async function syncPetPosition(x: number, y: number) {
   }
 }
 
+/**
+ * 通用：动画结束后同步宠物落点。
+ *
+ * 所有手势/触发动画结束后都应调用此函数，而非在各宠物插件内部处理。
+ * 这确保 homePosition、Rust 侧命中判定坐标、面板控制器坐标三者一致。
+ */
+async function settlePetAfterAnimation() {
+  if (!petApp) return;
+
+  const pos = petApp.petInstance.getPosition();
+  petApp.petInstance.setHomePosition(pos.x, pos.y);
+  petApp.petInstance.playIdle();
+
+  await syncPetPosition(pos.x, pos.y);
+  panel.updatePetPosition(pos.x, pos.y);
+}
+
 // ── 拖拽处理 ────────────────────────────────────────────────────────────────
 
 function handleDragStart() {
@@ -180,30 +199,19 @@ async function handleCircleGesture(payload: CircleGesturePayload) {
   await panel.hidePanel();
 
   try {
-    // 播放动画！坐标已经是屏幕逻辑坐标，无需任何窗口操作
+    // 播放动画！宠物插件只负责表演，不修改 homePosition
     await petApp.triggerFriesSequence(
       payload.center_x,
       payload.center_y,
       payload.radius
     );
 
-    // ★ BUG 修复：动画结束后，用宠物实际停留位置（飞行终点）
-    // 而非 payload.center_x/center_y（薯条中心）。
-    // 因为飞行时有 beakOffsetX 偏移，两者相差约 52px。
+    // ★ 通用落点同步：从宠物实际停留位置读取，设置 home、同步 Rust、更新面板控制器
+    await settlePetAfterAnimation();
+
+    // 显示面板（用同步后的实际位置）
     const pos = petApp.petInstance.getPosition();
-    const petX = pos.x;
-    const petY = pos.y;
-
-    // 先更新 homePosition，再 playIdle，防止宠物跳回旧位置
-    petApp.petInstance.setHomePosition(petX, petY);
-    petApp.petInstance.playIdle();
-
-    // 同步位置
-    await syncPetPosition(petX, petY);
-    panel.updatePetPosition(petX, petY);
-
-    // 显示面板
-    await panel.showPanel(petX, petY);
+    await panel.showPanel(pos.x, pos.y);
 
   } catch (e) {
     console.error("[App] handleCircleGesture 出错：", e);

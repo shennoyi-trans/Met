@@ -148,6 +148,17 @@ class SeagullInstance implements PetInstance {
   }
 
   // ── 触发序列（画圈→薯条→飞过去→啄食） ──────────────────────────────────
+  //
+  // 职责边界：只负责动画表演。
+  //   - 薯条出现 → 飞行 → 啄食 → 薯条消失
+  //   - 动画结束时 container 停留在表演终点（飞行落点）
+  //
+  // 不负责：
+  //   - 设置 homeX/homeY（调用方通过 getPosition() + setHomePosition() 统一处理）
+  //   - playIdle()（调用方决定何时恢复待机）
+  //   - 面板弹出、位置同步等通用流程
+  //
+  // 这样未来新宠物只需实现自己的动画表演，通用的落点同步逻辑不会重复。
 
   async onTrigger(ctx: TriggerContext): Promise<void> {
     this.state = "triggered";
@@ -181,16 +192,9 @@ class SeagullInstance implements PetInstance {
       this.friesContainer = null;
     }
 
-    // ★ BUG 修复：停留在飞行终点（啄食结束位置），而非跳到薯条中心
-    // 飞行终点 = (ctx.x - beakOffsetX, ctx.y + 10)
-    // 之前直接赋值 ctx.x / ctx.y 会导致 52px 的突然跳变，
-    // 视觉上表现为面板弹出时宠物向飞行方向偏移。
-    const finalX = this.container.x; // 啄食动画已恢复到 baseX = 飞行终点
-    const finalY = this.container.y;
-    this.homeX = finalX;
-    this.homeY = finalY;
+    // 清理动画残留状态，container 保持在啄食结束位置（= 飞行终点）
     this.container.rotation = 0;
-    this.applyFacing(); // 朝向已在飞行前设置，此处只确保 scale 干净
+    this.applyFacing();
     this.state = "idle";
   }
 
