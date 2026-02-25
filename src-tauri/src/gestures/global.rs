@@ -4,6 +4,7 @@
 //!   1. 宠物拖拽检测 → emit "pet-drag-start" / "pet-drag-move" / "pet-drag-end"
 //!   2. 宠物悬停检测 → emit "pet-hover-enter" / "pet-hover-leave"
 //!   3. 绘制轨迹收集 → 鼠标抬起时交给已注册的 GestureRecognizer 识别
+//!   4. 右键点击宠物 → emit "pet-right-click"（不穿透到下层窗口）
 //!
 //! 手势识别是可插拔的：切换宠物时通过 set_recognizers() 注册不同的识别器组合。
 //!
@@ -56,6 +57,8 @@ struct GestureState {
     pet_hit_radius: f64,
     /// 当前鼠标是否悬停在宠物上（用于 hover 进入/离开 检测）
     is_hovering: bool,
+    /// 右键是否按在宠物上（用于吞没 WM_RBUTTONUP，防止右键穿透）
+    right_button_on_pet: bool,
 }
 
 impl Default for GestureState {
@@ -69,6 +72,7 @@ impl Default for GestureState {
             pet_phys_y: -9999.0,
             pet_hit_radius: 75.0,
             is_hovering: false,
+            right_button_on_pet: false,
         }
     }
 }
@@ -187,6 +191,9 @@ unsafe extern "system" fn mouse_hook_proc(
         let x = mouse_data.pt.x as f64;
         let y = mouse_data.pt.y as f64;
 
+        // 标记是否需要吞没此消息（不传递给下层窗口）
+        let mut swallow = false;
+
         match w_param.0 as u32 {
             WM_LBUTTONDOWN => {
                 if let Ok(mut guard) = GLOBAL_STATE.try_lock() {
@@ -207,13 +214,27 @@ unsafe extern "system" fn mouse_hook_proc(
                     }
                 }
             }
-            
-             WM_RBUTTONDOWN => {
-                // ── 右键点击宠物 → 通知前端 toggle 面板 ──
-                if let Ok(guard) = GLOBAL_STATE.try_lock() {
-                    if let Some(state) = guard.as_ref() {
+
+            WM_RBUTTONDOWN => {
+                // ── 右键点击宠物 → 通知前端 toggle 面板，并吞没消息防止穿透 ──
+                if let Ok(mut guard) = GLOBAL_STATE.try_lock() {
+                    if let Some(state) = guard.as_mut() {
                         if state.is_cursor_over_pet(x, y) {
+                            state.right_button_on_pet = true;
                             emit_right_click_event(state.pet_phys_x, state.pet_phys_y);
+                            swallow = true; // 不让右键按下事件穿透到下层窗口
+                        }
+                    }
+                }
+            }
+
+            WM_RBUTTONUP => {
+                // ── 右键释放：如果对应的按下发生在宠物上，也吞没，防止触发下层右键菜单 ──
+                if let Ok(mut guard) = GLOBAL_STATE.try_lock() {
+                    if let Some(state) = guard.as_mut() {
+                        if state.right_button_on_pet {
+                            state.right_button_on_pet = false;
+                            swallow = true; // 配套吞没右键释放事件
                         }
                     }
                 }
@@ -310,6 +331,11 @@ unsafe extern "system" fn mouse_hook_proc(
             }
 
             _ => {}
+        }
+
+        // ── 吞没判定：如果事件发生在宠物上且需要拦截，不传递给下层窗口 ──
+        if swallow {
+            return LRESULT(1);
         }
     }
 
