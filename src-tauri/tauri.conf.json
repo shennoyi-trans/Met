@@ -1,6 +1,6 @@
 {
   "productName": "Met",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.met.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -40,11 +40,6 @@
         "y": 0
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false
-    },
     "security": {
       "csp": null
     }
@@ -52,18 +47,31 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2MDQ5MzAyNTQ4QUU5NTcKUldSWDZZcFVBcE1FOXZYbHVKWmQ5d1dNVFR4dzE4RWFCR2ZXK1RzaXFrdDZpR0xSbzYwWXJTM1kK",
-      "endpoints": ["https://mundus.top/met/releases/met_0.1.0_x64-setup.exe"]
+      "endpoints": [
+        "https://mundus.top/met/releases/met_0.1.1_x64-setup.exe"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": false,
+        "installMode": "both",
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   }
 }
