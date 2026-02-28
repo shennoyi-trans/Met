@@ -11,6 +11,9 @@
 //! 坐标说明：
 //!   钩子回调中 MSLLHOOKSTRUCT.pt 返回的是 **物理像素** 坐标。
 //!   emit 前会除以 DPI 缩放因子，转换为 **逻辑像素** 坐标。
+//!
+//! ★ 多显示器修复：使用 MonitorFromPoint + GetDpiForMonitor 获取
+//!   鼠标所在显示器的真实 DPI，而非始终使用主窗口的 scale factor。
 
 use std::sync::Mutex;
 use std::thread;
@@ -303,14 +306,23 @@ unsafe extern "system" fn mouse_hook_proc(
                     if let Some(app) = app_opt {
                         if action_type == "drag-end" {
                             thread::spawn(move || {
-                                let scale = get_scale(&app);
+                                // ★ 修复：使用宠物所在位置的显示器 DPI
+                                let scale = get_scale_for_point(px, py);
                                 let payload = DragPayload { x: px / scale, y: py / scale };
                                 let _ = app.emit("pet-drag-end", payload);
                             });
                         } else {
                             // ── 遍历已注册的识别器 ──
                             thread::spawn(move || {
-                                let scale = get_scale(&app);
+                                // ★ 修复：使用轨迹中心点所在显示器的 DPI
+                                let scale = if pts.is_empty() {
+                                    get_scale(&app)
+                                } else {
+                                    let n = pts.len() as f64;
+                                    let cx = pts.iter().map(|p| p.0).sum::<f64>() / n;
+                                    let cy = pts.iter().map(|p| p.1).sum::<f64>() / n;
+                                    get_scale_for_point(cx, cy)
+                                };
                                 let recognizers = RECOGNIZERS.lock().unwrap();
                                 for recognizer in recognizers.iter() {
                                     if let Some(result) = recognizer.analyze(&pts, scale) {
@@ -353,7 +365,8 @@ fn emit_drag_event(event_name: &str, phys_x: f64, phys_y: f64) {
         }
     };
     if let Some(app) = app_opt {
-        let scale = get_scale(&app);
+        // ★ 修复：使用鼠标/宠物所在位置的显示器 DPI
+        let scale = get_scale_for_point(phys_x, phys_y);
         let payload = DragPayload { x: phys_x / scale, y: phys_y / scale };
         let _ = app.emit(event_name, payload);
     }
@@ -384,12 +397,53 @@ fn emit_right_click_event(phys_x: f64, phys_y: f64) {
         }
     };
     if let Some(app) = app_opt {
-        let scale = get_scale(&app);
+        // ★ 修复：使用宠物所在位置的显示器 DPI
+        let scale = get_scale_for_point(phys_x, phys_y);
         let payload = DragPayload {
             x: phys_x / scale,
             y: phys_y / scale,
         };
         let _ = app.emit("pet-right-click", payload);
+    }
+}
+
+/// ★ 修复：获取指定物理像素坐标所在显示器的 DPI 缩放因子
+///
+/// 多显示器场景下，每个显示器可能有不同的 DPI 设置。
+/// 使用 MonitorFromPoint 确定坐标所在的显示器，
+/// 再用 GetDpiForMonitor 获取该显示器的实际 DPI。
+fn get_scale_for_point(phys_x: f64, phys_y: f64) -> f64 {
+    use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+
+    unsafe {
+        let pt = POINT { x: phys_x as i32, y: phys_y as i32 };
+        let hmon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        let mut dpi_x = 0u32;
+        let mut dpi_y = 0u32;
+        if GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y).is_ok() && dpi_x > 0
+        {
+            dpi_x as f64 / 96.0
+        } else {
+            // 回退：使用主窗口的 scale factor
+            get_scale_from_app()
+        }
+    }
+}
+
+/// 从主窗口获取 scale factor（回退方案）
+fn get_scale_from_app() -> f64 {
+    let app_opt = {
+        if let Ok(guard) = GLOBAL_APP.try_lock() {
+            guard.clone()
+        } else {
+            return 1.0;
+        }
+    };
+    if let Some(app) = app_opt {
+        get_scale(&app)
+    } else {
+        1.0
     }
 }
 

@@ -84,18 +84,19 @@ fn get_virtual_screen() -> (f64, f64, f64, f64) {
     }
 }
 
-/// ★ 修复：获取虚拟桌面物理尺寸（覆盖所有显示器）
+/// ★ 修复：获取虚拟桌面物理尺寸 + 左上角偏移（覆盖所有显示器）
+/// 返回 (origin_x, origin_y, width, height) — 全部为物理像素
 #[cfg(windows)]
 #[tauri::command]
-fn get_screen_size() -> (u32, u32) {
-    let (_, _, w, h) = get_virtual_screen();
-    (w as u32, h as u32)
+fn get_screen_size() -> (i32, i32, u32, u32) {
+    let (x, y, w, h) = get_virtual_screen();
+    (x as i32, y as i32, w as u32, h as u32)
 }
 
 #[cfg(not(windows))]
 #[tauri::command]
-fn get_screen_size() -> (u32, u32) {
-    (1920, 1080)
+fn get_screen_size() -> (i32, i32, u32, u32) {
+    (0, 0, 1920, 1080)
 }
 
 /// 重新置顶窗口（解决被任务栏预览等覆盖的问题）
@@ -183,8 +184,7 @@ pub fn run() {
             let main_win = app.get_webview_window("main")
                 .expect("main window not found");
 
-            // ★ 修复：获取虚拟桌面尺寸（覆盖所有显示器）
-            let scale = main_win.scale_factor().unwrap_or(1.0);
+            // ★ 关键修复：获取虚拟桌面尺寸（覆盖所有显示器）
             let (virt_x, virt_y, phys_w, phys_h) = {
                 #[cfg(windows)]
                 {
@@ -193,20 +193,32 @@ pub fn run() {
                 #[cfg(not(windows))]
                 { (0.0, 0.0, 1920.0, 1080.0) }
             };
-            let log_x = virt_x / scale;
-            let log_y = virt_y / scale;
-            let log_w = phys_w / scale;
-            let log_h = phys_h / scale;
 
-            // ★ 修复：窗口定位到虚拟桌面左上角（可能是负坐标）
-            let _ = main_win.set_position(tauri::LogicalPosition::new(log_x, log_y));
-            let _ = main_win.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
-            let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h - 1.0));
+            // ★ 关键修复：直接用 PhysicalPosition / PhysicalSize 设置窗口
+            //
+            //   之前的做法：physical → ÷ scale → LogicalSize → Tauri 内部 × scale → physical
+            //   问题：dev 和 release 模式下 DPI 感知可能不同，导致 GetSystemMetrics
+            //         返回的值与 main_win.scale_factor() 不匹配，round-trip 计算错误。
+            //
+            //   修复后：直接用物理像素坐标设置窗口，完全绕开 scale 转换的不一致性。
+            //   GetSystemMetrics 返回的坐标在当前进程的 DPI 感知模式下总是与
+            //   PhysicalPosition/PhysicalSize 对齐的。
+            let _ = main_win.set_min_size(Some(tauri::PhysicalSize::new(1u32, 1u32)));
+            let _ = main_win.set_position(tauri::PhysicalPosition::new(
+                virt_x as i32,
+                virt_y as i32,
+            ));
+            let _ = main_win.set_size(tauri::PhysicalSize::new(
+                phys_w as u32,
+                (phys_h as u32).saturating_sub(1),
+            ));
             let _ = main_win.set_ignore_cursor_events(true);
 
+            // 获取实际 scale（仅用于日志，不再用于窗口尺寸计算）
+            let scale = main_win.scale_factor().unwrap_or(1.0);
             eprintln!(
-                "[setup] virtual screen: origin=({:.0},{:.0}) size={:.0}x{:.0} phys, {:.0}x{:.0} logical (scale={:.2})",
-                virt_x, virt_y, phys_w, phys_h, log_w, log_h, scale
+                "[setup] virtual screen: origin=({:.0},{:.0}) size={:.0}x{:.0} phys (scale={:.2})",
+                virt_x, virt_y, phys_w, phys_h, scale
             );
 
             // ── 启动全局手势监听 ──────────────────────────────────────────

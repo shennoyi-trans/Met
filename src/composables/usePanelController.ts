@@ -18,6 +18,10 @@
  *   - 鼠标离开两者 → 开始 3 秒倒计时
  *   - 3 秒内回到任一区域 → 计时器清零
  *   - 3 秒到期 → 关闭面板
+ *
+ * ★ 多显示器修复：
+ *   面板位置计算改为从 Rust 获取虚拟桌面尺寸（覆盖所有显示器），
+ *   不再依赖 window.screen.availWidth/Height（始终返回主显示器尺寸）。
  */
 
 import { ref } from "vue";
@@ -32,34 +36,83 @@ const PANEL_GAP = 20;
 const PET_HALF_SIZE = 60; // 宠物碰撞半径（逻辑像素）
 const AUTO_CLOSE_MS = 3000;
 
-// ── 面板位置计算 ────────────────────────────────────────────────────────────
+// ── 虚拟桌面信息缓存 ────────────────────────────────────────────────────────
+// 避免每次计算面板位置都调用 Rust，缓存虚拟桌面信息。
+// 缓存在首次使用时填充，之后复用（显示器布局在运行期间很少变化）。
 
-function computePanelPosition(petX: number, petY: number): { x: number; y: number } {
-  const screenW = window.screen.availWidth;
-  const screenH = window.screen.availHeight;
+let cachedScreen: {
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+} | null = null;
+
+async function getVirtualScreen(): Promise<{
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+}> {
+  if (cachedScreen) return cachedScreen;
+
+  try {
+    const [ox, oy, w, h] = await invoke<[number, number, number, number]>("get_screen_size");
+    const scale = await invoke<number>("get_scale_factor");
+    cachedScreen = {
+      originX: ox / scale,
+      originY: oy / scale,
+      width: w / scale,
+      height: h / scale,
+    };
+  } catch {
+    // 回退：使用主显示器尺寸
+    cachedScreen = {
+      originX: 0,
+      originY: 0,
+      width: window.screen.availWidth,
+      height: window.screen.availHeight,
+    };
+  }
+
+  return cachedScreen;
+}
+
+// ── 面板位置计算（异步，支持多显示器）────────────────────────────────────────
+
+async function computePanelPosition(
+  petX: number,
+  petY: number
+): Promise<{ x: number; y: number }> {
+  const screen = await getVirtualScreen();
+
+  // 虚拟桌面的有效范围
+  const minX = screen.originX;
+  const minY = screen.originY;
+  const maxX = screen.originX + screen.width;
+  const maxY = screen.originY + screen.height;
 
   let x: number;
   let y: number;
 
   // 优先放右侧
-  if (petX + PET_HALF_SIZE + PANEL_GAP + PANEL_W < screenW) {
+  if (petX + PET_HALF_SIZE + PANEL_GAP + PANEL_W < maxX) {
     x = petX + PET_HALF_SIZE + PANEL_GAP;
   }
   // 其次放左侧
-  else if (petX - PET_HALF_SIZE - PANEL_GAP - PANEL_W > 0) {
+  else if (petX - PET_HALF_SIZE - PANEL_GAP - PANEL_W > minX) {
     x = petX - PET_HALF_SIZE - PANEL_GAP - PANEL_W;
   }
-  // 兜底居中
+  // 兜底居中于宠物附近
   else {
-    x = Math.max(10, (screenW - PANEL_W) / 2);
+    x = Math.max(minX + 10, petX - PANEL_W / 2);
   }
 
   // 纵向：与宠物大致齐平
   y = petY - 40;
 
-  // 边界钳制
-  x = Math.max(5, Math.min(x, screenW - PANEL_W - 5));
-  y = Math.max(5, Math.min(y, screenH - PANEL_H - 5));
+  // 边界钳制（使用虚拟桌面范围，支持副屏负坐标）
+  x = Math.max(minX + 5, Math.min(x, maxX - PANEL_W - 5));
+  y = Math.max(minY + 5, Math.min(y, maxY - PANEL_H - 5));
 
   return { x, y };
 }
@@ -114,7 +167,7 @@ export function usePanelController() {
     lastPetX = petX;
     lastPetY = petY;
 
-    const pos = computePanelPosition(petX, petY);
+    const pos = await computePanelPosition(petX, petY);
     try {
       await invoke("show_panel", { x: pos.x, y: pos.y });
       isPanelVisible.value = true;
@@ -147,7 +200,7 @@ export function usePanelController() {
     }
   }
 
-  // ── 悬停事件处理（供 App.vue 事件监听调用）─────────────────────────────────
+  // ── 悬停事件处理（供 App.vue 事件监听调用）────────────────────────────────
 
   function onPetHoverEnter() {
     isMouseOverPet = true;
@@ -189,6 +242,9 @@ export function usePanelController() {
    * onPetHoverEnter / onPetHoverLeave。
    */
   async function init() {
+    // ★ 预热虚拟桌面缓存（避免首次弹面板时延迟）
+    getVirtualScreen().catch(() => {});
+
     unlisteners.push(
       await listen("panel-hover-enter", () => onPanelHoverEnter()),
       await listen("panel-hover-leave", () => onPanelHoverLeave()),
