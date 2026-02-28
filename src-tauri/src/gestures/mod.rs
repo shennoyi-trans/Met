@@ -9,5 +9,4 @@ pub mod global;
 pub mod recognizers;
 
 // 对外 re-export，让 lib.rs 用起来和之前一样方便
-pub use global::{start_global_listener, set_pet_position, set_recognizers, DragPayload};
-pub use recognizers::GestureResult;
+pub use global::{start_global_listener, set_pet_position, set_recognizers};

@@ -1,6 +1,6 @@
 {
   "productName": "Met",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.met.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -48,7 +48,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2MDQ5MzAyNTQ4QUU5NTcKUldSWDZZcFVBcE1FOXZYbHVKWmQ5d1dNVFR4dzE4RWFCR2ZXK1RzaXFrdDZpR0xSbzYwWXJTM1kK",
       "endpoints": [
-        "https://mundus.top/met/releases/met_0.1.1_x64-setup.exe"
+        "https://mundus.top/met/releases/met_0.1.2_x64-setup.exe"
       ]
     }
   },

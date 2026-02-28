@@ -31,8 +31,6 @@ fn register_recognizers(names: Vec<String>) -> Result<(), String> {
     for name in &names {
         match name.as_str() {
             "circle" => list.push(Box::new(CircleRecognizer)),
-            // 未来扩展：
-            // "heart" => list.push(Box::new(HeartRecognizer)),
             other => eprintln!("[lib] ⚠️ 未知识别器: {}", other),
         }
     }
@@ -70,16 +68,28 @@ fn get_scale_factor(app: AppHandle) -> Result<f64, String> {
     window.scale_factor().map_err(|e| e.to_string())
 }
 
-/// 获取屏幕物理尺寸
+// ★ 修复：获取虚拟桌面尺寸（覆盖所有显示器）+ 左上角偏移
+#[cfg(windows)]
+fn get_virtual_screen() -> (f64, f64, f64, f64) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    };
+    unsafe {
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN) as f64;
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN) as f64;
+        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN) as f64;
+        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN) as f64;
+        (x, y, w, h)
+    }
+}
+
+/// ★ 修复：获取虚拟桌面物理尺寸（覆盖所有显示器）
 #[cfg(windows)]
 #[tauri::command]
 fn get_screen_size() -> (u32, u32) {
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-    unsafe {
-        let w = GetSystemMetrics(SM_CXSCREEN) as u32;
-        let h = GetSystemMetrics(SM_CYSCREEN) as u32;
-        (w, h)
-    }
+    let (_, _, w, h) = get_virtual_screen();
+    (w as u32, h as u32)
 }
 
 #[cfg(not(windows))]
@@ -173,33 +183,31 @@ pub fn run() {
             let main_win = app.get_webview_window("main")
                 .expect("main window not found");
 
-            // 获取屏幕逻辑尺寸并全屏
+            // ★ 修复：获取虚拟桌面尺寸（覆盖所有显示器）
             let scale = main_win.scale_factor().unwrap_or(1.0);
-            let (phys_w, phys_h) = {
+            let (virt_x, virt_y, phys_w, phys_h) = {
                 #[cfg(windows)]
                 {
-                    use windows::Win32::UI::WindowsAndMessaging::{
-                        GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
-                    };
-                    unsafe {
-                        (
-                            GetSystemMetrics(SM_CXSCREEN) as f64,
-                            GetSystemMetrics(SM_CYSCREEN) as f64,
-                        )
-                    }
+                    get_virtual_screen()
                 }
                 #[cfg(not(windows))]
-                { (1920.0, 1080.0) }
+                { (0.0, 0.0, 1920.0, 1080.0) }
             };
+            let log_x = virt_x / scale;
+            let log_y = virt_y / scale;
             let log_w = phys_w / scale;
             let log_h = phys_h / scale;
 
-            let _ = main_win.set_position(tauri::LogicalPosition::new(0.0, 0.0));
+            // ★ 修复：窗口定位到虚拟桌面左上角（可能是负坐标）
+            let _ = main_win.set_position(tauri::LogicalPosition::new(log_x, log_y));
             let _ = main_win.set_min_size(Some(tauri::LogicalSize::new(1.0_f64, 1.0_f64)));
             let _ = main_win.set_size(tauri::LogicalSize::new(log_w, log_h - 1.0));
             let _ = main_win.set_ignore_cursor_events(true);
 
-            eprintln!("[setup] main window: {:.0}x{:.0} logical, always-on-top, 穿透", log_w, log_h);
+            eprintln!(
+                "[setup] virtual screen: origin=({:.0},{:.0}) size={:.0}x{:.0} phys, {:.0}x{:.0} logical (scale={:.2})",
+                virt_x, virt_y, phys_w, phys_h, log_w, log_h, scale
+            );
 
             // ── 启动全局手势监听 ──────────────────────────────────────────
             let app_handle = app.handle().clone();
